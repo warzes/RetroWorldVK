@@ -1,10 +1,20 @@
 ﻿#include "stdafx.h"
 #include "app_window.h"
+#include "_app_window.h"
 #include "core_log.h"
+#include "_app_input.h"
+#include "app_messageHandler.h"
+//=============================================================================
+#ifndef GET_X_LPARAM
+#	define GET_X_LPARAM(lp) ((int)(short)LOWORD(lp))
+#endif
+#ifndef GET_Y_LPARAM
+#	define GET_Y_LPARAM(lp) ((int)(short)HIWORD(lp))
+#endif
 //=============================================================================
 namespace
 {
-	constexpr const wchar_t* ClassName = L"SEGameWindow";
+	constexpr const wchar_t* AppWindowClass = L"SEGameWindow";
 
 	HWND      hwnd{ nullptr };
 	HINSTANCE instance{ nullptr };
@@ -18,6 +28,8 @@ namespace
 
 	MSG       msg = {};
 }
+//=============================================================================
+extern app::MessageHandler* userMessageHandler;
 //=============================================================================
 static void windowSetSize(uint16_t w, uint16_t h) noexcept
 {
@@ -52,6 +64,7 @@ static LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARA
 	{
 	case WM_CLOSE:
 		windowClose = true;
+		if (userMessageHandler) userMessageHandler->OnWindowClose();
 		return 0;
 	case WM_DESTROY:
 		PostQuitMessage(0);
@@ -74,10 +87,100 @@ static LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARA
 		{
 			if ((resizing) || ((wParam == SIZE_MAXIMIZED) || (wParam == SIZE_RESTORED)))
 			{
-				windowSetSize(static_cast<uint16_t>(LOWORD(lParam)), static_cast<uint16_t>(HIWORD(lParam)));
+				uint16_t width = static_cast<uint16_t>(LOWORD(lParam));
+				uint16_t height = static_cast<uint16_t>(HIWORD(lParam));
+				windowSetSize(width, height);
+				if (userMessageHandler) userMessageHandler->OnSizeChanged(width, height);
 			}
 		}
 		return 0;
+	case WM_KEYDOWN:
+		{
+			const int keycode = HIWORD(lParam) & 0x1FF;
+			KeyboardType key = input::GetKeyFromKeyCode(keycode);
+			input::OnKeyDown(key);
+			return 0;
+		}
+	case WM_KEYUP:
+		{
+			const int keycode = HIWORD(lParam) & 0x1FF;
+			KeyboardType key = input::GetKeyFromKeyCode(keycode);
+			input::OnKeyUp(key);
+			return 0;
+		}
+
+	case WM_LBUTTONDOWN:
+	case WM_RBUTTONDOWN:
+	case WM_MBUTTONDOWN:
+	case WM_XBUTTONDOWN:
+	case WM_LBUTTONUP:
+	case WM_RBUTTONUP:
+	case WM_MBUTTONUP:
+	case WM_XBUTTONUP:
+		{
+			MouseType button = MouseType::MOUSE_BUTTON_LEFT;
+
+			const int x = GET_X_LPARAM(lParam);
+			const int y = GET_Y_LPARAM(lParam);
+			math::point2 pos(x, y);
+
+			if (message == WM_LBUTTONDOWN || message == WM_LBUTTONUP)
+			{
+				button = MouseType::MOUSE_BUTTON_LEFT;
+			}
+			else if (message == WM_RBUTTONDOWN || message == WM_RBUTTONUP)
+			{
+				button = MouseType::MOUSE_BUTTON_RIGHT;
+			}
+			else if (message == WM_MBUTTONDOWN || message == WM_MBUTTONUP)
+			{
+				button = MouseType::MOUSE_BUTTON_MIDDLE;
+			}
+			else if (GET_XBUTTON_WPARAM(wParam) == XBUTTON1)
+			{
+				button = MouseType::MOUSE_BUTTON_4;
+			}
+			else
+			{
+				button = MouseType::MOUSE_BUTTON_5;
+			}
+
+			if (message == WM_LBUTTONDOWN || message == WM_RBUTTONDOWN || message == WM_MBUTTONDOWN || message == WM_XBUTTONDOWN)
+			{
+				input::OnMouseDown(button, pos);
+			}
+			else
+			{
+				input::OnMouseUp(button, pos);
+			}
+
+			return 0;
+		}
+
+	case WM_MOUSEMOVE:
+		{
+			const int x = GET_X_LPARAM(lParam);
+			const int y = GET_Y_LPARAM(lParam);
+			math::point2 pos(x, y);
+			input::OnMouseMove(pos);
+			return 0;
+		}
+	case WM_MOUSEWHEEL:
+		{
+			const int x = GET_X_LPARAM(lParam);
+			const int y = GET_Y_LPARAM(lParam);
+			math::point2 pos((float)x, (float)y);
+			input::OnMouseWheel((float)GET_WHEEL_DELTA_WPARAM(wParam) / (float)WHEEL_DELTA, pos);
+			return 0;
+		}
+	case WM_MOUSEHWHEEL:
+		{
+			const int x = GET_X_LPARAM(lParam);
+			const int y = GET_Y_LPARAM(lParam);
+			math::point2 pos((float)x, (float)y);
+			input::OnMouseWheel((float)GET_WHEEL_DELTA_WPARAM(wParam) / (float)WHEEL_DELTA, pos);
+			return 0;
+		}
 	}
 
 	// Handle any messages the switch statement didn't.
@@ -91,16 +194,13 @@ bool window::Init(const WindowCreateInfo& createInfo)
 
 	instance = GetModuleHandle(nullptr);
 
-	ImGui_ImplWin32_EnableDpiAwareness();
-	float mainScale = ImGui_ImplWin32_GetDpiScaleForMonitor(::MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY));
-
 	WNDCLASSEX windowClass    = { 0 };
 	windowClass.cbSize        = sizeof(WNDCLASSEX);
-	windowClass.style         = CS_CLASSDC;
+	windowClass.style         = CS_HREDRAW | CS_VREDRAW;
 	windowClass.lpfnWndProc   = WindowProc;
 	windowClass.hInstance     = instance;
 	windowClass.hCursor       = LoadCursor(NULL, IDC_ARROW);
-	windowClass.lpszClassName = ClassName;
+	windowClass.lpszClassName = AppWindowClass;
 	if (!RegisterClassEx(&windowClass))
 	{
 		core::Fatal("Failed to register window class");
@@ -108,11 +208,11 @@ bool window::Init(const WindowCreateInfo& createInfo)
 	}
 
 	RECT windowRect = { 0, 0, 
-		static_cast<LONG>((float)createInfo.width * mainScale), 
-		static_cast<LONG>((float)createInfo.height * mainScale) };
+		static_cast<LONG>(createInfo.width), 
+		static_cast<LONG>(createInfo.height) };
 	AdjustWindowRect(&windowRect, WS_OVERLAPPEDWINDOW, FALSE);
 
-	hwnd = CreateWindow(ClassName, createInfo.title.c_str(), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, windowRect.right - windowRect.left, windowRect.bottom - windowRect.top, nullptr, nullptr, instance, nullptr);
+	hwnd = CreateWindow(AppWindowClass, createInfo.title.c_str(), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, windowRect.right - windowRect.left, windowRect.bottom - windowRect.top, nullptr, nullptr, instance, nullptr);
 	if (!hwnd)
 	{
 		core::Error("Failed to create window");
@@ -134,7 +234,7 @@ bool window::Init(const WindowCreateInfo& createInfo)
 void window::Close()
 {
 	if (hwnd) DestroyWindow(hwnd);
-	if (instance) UnregisterClass(ClassName, instance);
+	if (instance) UnregisterClass(AppWindowClass, instance);
 	hwnd = nullptr;
 	windowClose = true;
 }

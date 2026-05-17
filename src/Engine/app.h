@@ -1,6 +1,8 @@
 ﻿#pragma once
 
 #include "app_window.h"
+#include "app_input.h"
+#include "app_messageHandler.h"
 
 namespace app
 {
@@ -15,6 +17,8 @@ namespace app
 		void (*fixedUpdate_cb)() = nullptr;
 		void (*render_cb)() = nullptr;
 		void (*renderUi_cb)() = nullptr;
+
+		MessageHandler* userMessageHandler{ nullptr };
 	};
 
 	void Run(const AppCreateInfo& info);

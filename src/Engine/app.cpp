@@ -1,10 +1,12 @@
 ﻿#include "stdafx.h"
 #include "app.h"
+#include "_app_window.h"
+#include "_app_input.h"
 #include "gpu_system.h"
 //=============================================================================
 namespace
 {
-	bool isExitApp{ true };
+	bool IsRequestingExit{ true };
 	bool drawFPS{ false };
 	// timer
 	std::chrono::high_resolution_clock::time_point previousTime;
@@ -19,6 +21,8 @@ namespace
 	double                timeCounter{ 0.0 };
 	float                 framesPerSecond{ 0.0f };
 }
+//=============================================================================
+app::MessageHandler* userMessageHandler{ nullptr };
 //=============================================================================
 static void DrawFPS()
 {
@@ -40,8 +44,19 @@ static void DrawFPS()
 //=============================================================================
 static bool Init(const app::AppCreateInfo& info)
 {
+	userMessageHandler = info.userMessageHandler;
+	IsRequestingExit = false;
+	currentTime = previousTime = std::chrono::high_resolution_clock::now();
+	accumulator = 0.0f;
+	deltaTime = 0.0f;
+	frameCounter = 0;
+	timeCounter = 0.0;
+
+	drawFPS = info.drawFPS;
+
 	if (!window::Init(info.window))
 		return false;
+	input::Init();
 
 	gpu::CreateInfo gpuCreateInfo{};
 	gpuCreateInfo.hwnd     = window::GetHwnd();
@@ -49,14 +64,6 @@ static bool Init(const app::AppCreateInfo& info)
 	if (!gpu::Init(gpuCreateInfo))
 		return false;
 
-	currentTime = previousTime = std::chrono::high_resolution_clock::now();
-	accumulator = 0.0f;
-	deltaTime = 0.0f;
-	frameCounter = 0;
-	timeCounter = 0.0;
-		
-	drawFPS = info.drawFPS;
-	isExitApp = false;
 	return true;
 }
 //=============================================================================
@@ -64,12 +71,12 @@ static void Close()
 {
 	gpu::Close();
 	window::Close();
-	isExitApp = true;
+	IsRequestingExit = true;
 }
 //=============================================================================
 static bool IsShouldClose() noexcept
 {
-	return isExitApp || window::IsShouldClose();
+	return IsRequestingExit || window::IsShouldClose();
 }
 //=============================================================================
 static void TimerUpdate()
@@ -100,6 +107,7 @@ static bool Update(const app::AppCreateInfo& info)
 {
 	TimerUpdate();
 
+	input::Reset();
 	if (!window::PollEvents())
 		return false;
 
@@ -157,7 +165,8 @@ void app::Run(const app::AppCreateInfo& info)
 //=============================================================================
 void app::Exit() noexcept
 {
-	isExitApp = true;
+	IsRequestingExit = true;
+	if (userMessageHandler) userMessageHandler->OnRequestingExit();
 }
 //=============================================================================
 float app::GetDeltaTime() noexcept

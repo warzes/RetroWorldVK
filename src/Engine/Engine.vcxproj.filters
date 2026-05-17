@@ -50,6 +50,18 @@
     <ClInclude Include="_gpu_core.h">
       <Filter>gpu\private</Filter>
     </ClInclude>
+    <ClInclude Include="_app_window.h">
+      <Filter>app\private</Filter>
+    </ClInclude>
+    <ClInclude Include="_app_input.h">
+      <Filter>app\private</Filter>
+    </ClInclude>
+    <ClInclude Include="math_point2.h">
+      <Filter>math</Filter>
+    </ClInclude>
+    <ClInclude Include="app_messageHandler.h">
+      <Filter>app</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp" />
@@ -99,6 +111,9 @@
     </Filter>
     <Filter Include="gpu\private">
       <UniqueIdentifier>{98f5feb7-361f-432e-9f1f-815ae6604408}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="app\private">
+      <UniqueIdentifier>{f80efeee-f6f2-40ad-bc25-da603dfa9d26}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 </Project>

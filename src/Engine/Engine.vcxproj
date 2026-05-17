@@ -99,6 +99,7 @@
     <ClInclude Include="app.h" />
     <ClInclude Include="app_input.h" />
     <ClInclude Include="app_keys.h" />
+    <ClInclude Include="app_messageHandler.h" />
     <ClInclude Include="app_window.h" />
     <ClInclude Include="core_file.h" />
     <ClInclude Include="core_log.h" />
@@ -107,11 +108,14 @@
     <ClInclude Include="math_core.h" />
     <ClInclude Include="math_mat3.h" />
     <ClInclude Include="math_mat4.h" />
+    <ClInclude Include="math_point2.h" />
     <ClInclude Include="math_quat.h" />
     <ClInclude Include="math_vec2.h" />
     <ClInclude Include="math_vec3.h" />
     <ClInclude Include="math_vec4.h" />
     <ClInclude Include="stdafx.h" />
+    <ClInclude Include="_app_input.h" />
+    <ClInclude Include="_app_window.h" />
     <ClInclude Include="_gpu_core.h" />
   </ItemGroup>
   <ItemGroup>

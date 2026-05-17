@@ -320,7 +320,6 @@ bool gpu::Init(const CreateInfo& createInfo)
 		return 1;
 	}
 
-	float main_scale = ImGui_ImplWin32_GetDpiScaleForMonitor(::MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY));
 	ImGui_ImplVulkanH_Window* wd = &MainWindowData;
 	SetupVulkanWindow(wd, surface, window::GetWidth(), window::GetHeight());
 
@@ -337,8 +336,8 @@ bool gpu::Init(const CreateInfo& createInfo)
 
 	// Setup scaling
 	ImGuiStyle& style = ImGui::GetStyle();
-	style.ScaleAllSizes(main_scale);        // Bake a fixed style scale. (until we have a solution for dynamic style scaling, changing this requires resetting Style + calling this again)
-	style.FontScaleDpi = main_scale;        // Set initial font scale. (in docking branch: using io.ConfigDpiScaleFonts=true automatically overrides this for every window depending on the current monitor)
+	//style.ScaleAllSizes(main_scale);        // Bake a fixed style scale. (until we have a solution for dynamic style scaling, changing this requires resetting Style + calling this again)
+	//style.FontScaleDpi = main_scale;        // Set initial font scale. (in docking branch: using io.ConfigDpiScaleFonts=true automatically overrides this for every window depending on the current monitor)
 
 	// Setup Platform/Renderer backends
 	ImGui_ImplWin32_Init(createInfo.hwnd);
