@@ -73,3 +73,29 @@ inline const char* VkResultStr(VkResult input_value)
 			return false;                                                   \
 		}                                                                   \
 	} while(0)
+
+// Helper to chain Vulkan structures to the pNext chain
+// Uses VkBaseOutStructure for type-safe chaining following Vulkan conventions
+template <typename MainT, typename NewT>
+inline void pNextChainPushFront(MainT* mainStruct, NewT* newStruct)
+{
+	// Cast to VkBaseOutStructure for proper pNext handling
+	auto* newBase = reinterpret_cast<VkBaseOutStructure*>(newStruct);
+	auto* mainBase = reinterpret_cast<VkBaseOutStructure*>(mainStruct);
+
+	newBase->pNext = mainBase->pNext;
+	mainBase->pNext = newBase;
+}
+
+/*--
+ * A queue is a sequence of commands that are executed in order.
+ * The queue is used to submit command buffers to the GPU.
+ * The family index is used to identify the queue family (graphic, compute, transfer, ...) .
+ * The queue index is used to identify the queue in the family, multiple queues can be in the same family.
+-*/
+struct QueueInfo final
+{
+	uint32_t familyIndex = ~0U; // Family index of the queue (graphic, compute, transfer, ...)
+	uint32_t queueIndex = ~0U;  // Index of the queue in the family
+	VkQueue  queue{};           // The queue object
+};

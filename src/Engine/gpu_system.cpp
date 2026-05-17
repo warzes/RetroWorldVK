@@ -1,7 +1,8 @@
 ﻿#include "stdafx.h"
 #include "gpu_system.h"
-#include "_gpu_core.h"
+#include "_vk_core.h"
 #include "app_window.h"
+#include "_vk_context.h"
 #ifdef _DEBUG
 #define APP_USE_VULKAN_DEBUG_REPORT
 #endif
@@ -10,12 +11,13 @@
 namespace
 {
 	static VkAllocationCallbacks*   Allocator{ nullptr };
-	static VkInstance               Instance{ nullptr };
-	static VkPhysicalDevice         PhysicalDevice{ nullptr };
-	static VkDevice                 Device{ nullptr };
-	static uint32_t                 QueueFamily = (uint32_t)-1;
-	static VkQueue                  Queue{ nullptr };
-	static VkDebugReportCallbackEXT DebugReport{ nullptr };
+	Context                         context{};
+	//static VkInstance               Instance{ nullptr };
+	//static VkPhysicalDevice         PhysicalDevice{ nullptr };
+	//static VkDevice                 Device{ nullptr };
+	//static uint32_t                 QueueFamily = (uint32_t)-1;
+	//static VkQueue                  Queue{ nullptr };
+	//static VkDebugReportCallbackEXT DebugReport{ nullptr };
 	static VkSurfaceKHR             surface{ nullptr };
 	static VkPipelineCache          PipelineCache{ nullptr };
 	static VkDescriptorPool         DescriptorPool{ nullptr };
@@ -28,117 +30,8 @@ namespace
 	uint16_t fbHeight{ 0 };
 }
 //=============================================================================
-#ifdef APP_USE_VULKAN_DEBUG_REPORT
-static VKAPI_ATTR VkBool32 VKAPI_CALL debug_report(VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT objectType, uint64_t object, size_t location, int32_t messageCode, const char* pLayerPrefix, const char* pMessage, void* pUserData)
+static bool SetupVulkan()
 {
-	core::Print("[vulkan] Debug report from ObjectType: " + std::to_string(objectType) + "\nMessage: " + pMessage);
-	return VK_FALSE;
-}
-#endif // APP_USE_VULKAN_DEBUG_REPORT
-//=============================================================================
-static bool IsExtensionAvailable(const ImVector<VkExtensionProperties>& properties, const char* extension)
-{
-	for (const VkExtensionProperties& p : properties)
-		if (strcmp(p.extensionName, extension) == 0)
-			return true;
-	return false;
-}
-//=============================================================================
-static bool SetupVulkan(ImVector<const char*> instance_extensions)
-{
-	VK_CHECK_FALSE(volkInitialize());
-
-	// Create Vulkan Instance
-	{
-		VkInstanceCreateInfo create_info = {};
-		create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-
-		// Enumerate available extensions
-		uint32_t properties_count;
-		ImVector<VkExtensionProperties> properties;
-		vkEnumerateInstanceExtensionProperties(nullptr, &properties_count, nullptr);
-		properties.resize(properties_count);
-		VK_CHECK_FALSE(vkEnumerateInstanceExtensionProperties(nullptr, &properties_count, properties.Data));
-
-		// Enable required extensions
-		if (IsExtensionAvailable(properties, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME))
-			instance_extensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
-#ifdef VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
-		if (IsExtensionAvailable(properties, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME))
-		{
-			instance_extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
-			create_info.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
-		}
-#endif
-
-		// Enabling validation layers
-#ifdef APP_USE_VULKAN_DEBUG_REPORT
-		const char* layers[] = { "VK_LAYER_KHRONOS_validation" };
-		create_info.enabledLayerCount = 1;
-		create_info.ppEnabledLayerNames = layers;
-		instance_extensions.push_back("VK_EXT_debug_report");
-#endif
-
-		// Create Vulkan Instance
-		create_info.enabledExtensionCount = (uint32_t)instance_extensions.Size;
-		create_info.ppEnabledExtensionNames = instance_extensions.Data;
-		VK_CHECK_FALSE(vkCreateInstance(&create_info, Allocator, &Instance));
-
-		volkLoadInstance(Instance);
-
-		// Setup the debug report callback
-#ifdef APP_USE_VULKAN_DEBUG_REPORT
-		auto f_vkCreateDebugReportCallbackEXT = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(Instance, "vkCreateDebugReportCallbackEXT");
-		IM_ASSERT(f_vkCreateDebugReportCallbackEXT != nullptr);
-		VkDebugReportCallbackCreateInfoEXT debug_report_ci = {};
-		debug_report_ci.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT;
-		debug_report_ci.flags = VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT;
-		debug_report_ci.pfnCallback = debug_report;
-		debug_report_ci.pUserData = nullptr;
-		VK_CHECK_FALSE(f_vkCreateDebugReportCallbackEXT(Instance, &debug_report_ci, Allocator, &DebugReport));
-#endif
-	}
-
-	// Select Physical Device (GPU)
-	PhysicalDevice = ImGui_ImplVulkanH_SelectPhysicalDevice(Instance);
-	IM_ASSERT(PhysicalDevice != VK_NULL_HANDLE);
-
-	// Select graphics queue family
-	QueueFamily = ImGui_ImplVulkanH_SelectQueueFamilyIndex(PhysicalDevice);
-	IM_ASSERT(QueueFamily != (uint32_t)-1);
-
-	// Create Logical Device (with 1 queue)
-	{
-		ImVector<const char*> device_extensions;
-		device_extensions.push_back("VK_KHR_swapchain");
-
-		// Enumerate physical device extension
-		uint32_t properties_count;
-		ImVector<VkExtensionProperties> properties;
-		vkEnumerateDeviceExtensionProperties(PhysicalDevice, nullptr, &properties_count, nullptr);
-		properties.resize(properties_count);
-		vkEnumerateDeviceExtensionProperties(PhysicalDevice, nullptr, &properties_count, properties.Data);
-#ifdef VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME
-		if (IsExtensionAvailable(properties, VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME))
-			device_extensions.push_back(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
-#endif
-
-		const float queue_priority[] = { 1.0f };
-		VkDeviceQueueCreateInfo queue_info[1] = {};
-		queue_info[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-		queue_info[0].queueFamilyIndex = QueueFamily;
-		queue_info[0].queueCount = 1;
-		queue_info[0].pQueuePriorities = queue_priority;
-		VkDeviceCreateInfo create_info = {};
-		create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-		create_info.queueCreateInfoCount = sizeof(queue_info) / sizeof(queue_info[0]);
-		create_info.pQueueCreateInfos = queue_info;
-		create_info.enabledExtensionCount = (uint32_t)device_extensions.Size;
-		create_info.ppEnabledExtensionNames = device_extensions.Data;
-		VK_CHECK_FALSE(vkCreateDevice(PhysicalDevice, &create_info, Allocator, &Device));
-		vkGetDeviceQueue(Device, QueueFamily, 0, &Queue);
-	}
-
 	// Create Descriptor Pool
 	// If you wish to load e.g. additional textures you may need to alter pools sizes and maxSets.
 	{
@@ -155,7 +48,7 @@ static bool SetupVulkan(ImVector<const char*> instance_extensions)
 			pool_info.maxSets += pool_size.descriptorCount;
 		pool_info.poolSizeCount = (uint32_t)IM_COUNTOF(pool_sizes);
 		pool_info.pPoolSizes = pool_sizes;
-		VK_CHECK_FALSE(vkCreateDescriptorPool(Device, &pool_info, Allocator, &DescriptorPool));
+		VK_CHECK_FALSE(vkCreateDescriptorPool(context.GetDevice(), &pool_info, Allocator, &DescriptorPool));
 	}
 
 	return true;
@@ -165,20 +58,11 @@ static bool SetupVulkan(ImVector<const char*> instance_extensions)
 // Your real engine/app may not use them.
 static void SetupVulkanWindow(ImGui_ImplVulkanH_Window* wd, VkSurfaceKHR surface, int width, int height)
 {
-	// Check for WSI support
-	VkBool32 res;
-	vkGetPhysicalDeviceSurfaceSupportKHR(PhysicalDevice, QueueFamily, surface, &res);
-	if (res != VK_TRUE)
-	{
-		fprintf(stderr, "Error no WSI support on physical device 0\n");
-		exit(-1);
-	}
-
 	// Select Surface Format
 	const VkFormat requestSurfaceImageFormat[] = { VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8_UNORM, VK_FORMAT_R8G8B8_UNORM };
 	const VkColorSpaceKHR requestSurfaceColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR;
 	wd->Surface = surface;
-	wd->SurfaceFormat = ImGui_ImplVulkanH_SelectSurfaceFormat(PhysicalDevice, wd->Surface, requestSurfaceImageFormat, (size_t)IM_COUNTOF(requestSurfaceImageFormat), requestSurfaceColorSpace);
+	wd->SurfaceFormat = ImGui_ImplVulkanH_SelectSurfaceFormat(context.GetPhysicalDevice(), wd->Surface, requestSurfaceImageFormat, (size_t)IM_COUNTOF(requestSurfaceImageFormat), requestSurfaceColorSpace);
 
 	// Select Present Mode
 #ifdef APP_USE_UNLIMITED_FRAME_RATE
@@ -186,19 +70,19 @@ static void SetupVulkanWindow(ImGui_ImplVulkanH_Window* wd, VkSurfaceKHR surface
 #else
 	VkPresentModeKHR present_modes[] = { VK_PRESENT_MODE_FIFO_KHR };
 #endif
-	wd->PresentMode = ImGui_ImplVulkanH_SelectPresentMode(PhysicalDevice, wd->Surface, &present_modes[0], IM_COUNTOF(present_modes));
+	wd->PresentMode = ImGui_ImplVulkanH_SelectPresentMode(context.GetPhysicalDevice(), wd->Surface, &present_modes[0], IM_COUNTOF(present_modes));
 	//printf("[vulkan] Selected PresentMode = %d\n", wd->PresentMode);
 
 	// Create SwapChain, RenderPass, Framebuffer, etc.
 	IM_ASSERT(MinImageCount >= 2);
-	ImGui_ImplVulkanH_CreateOrResizeWindow(Instance, PhysicalDevice, Device, wd, QueueFamily, Allocator, width, height, MinImageCount, 0);
+	ImGui_ImplVulkanH_CreateOrResizeWindow(context.GetInstance(), context.GetPhysicalDevice(), context.GetDevice(), wd, context.GetGraphicsQueue().familyIndex, Allocator, width, height, MinImageCount, 0);
 }
 //=============================================================================
 static void FrameRender(ImGui_ImplVulkanH_Window* wd, ImDrawData* draw_data)
 {
 	VkSemaphore image_acquired_semaphore = wd->FrameSemaphores[wd->SemaphoreIndex].ImageAcquiredSemaphore;
 	VkSemaphore render_complete_semaphore = wd->FrameSemaphores[wd->SemaphoreIndex].RenderCompleteSemaphore;
-	VkResult err = vkAcquireNextImageKHR(Device, wd->Swapchain, UINT64_MAX, image_acquired_semaphore, VK_NULL_HANDLE, &wd->FrameIndex);
+	VkResult err = vkAcquireNextImageKHR(context.GetDevice(), wd->Swapchain, UINT64_MAX, image_acquired_semaphore, VK_NULL_HANDLE, &wd->FrameIndex);
 	if (err == VK_ERROR_OUT_OF_DATE_KHR || err == VK_SUBOPTIMAL_KHR)
 		SwapChainRebuild = true;
 	if (err == VK_ERROR_OUT_OF_DATE_KHR)
@@ -208,14 +92,14 @@ static void FrameRender(ImGui_ImplVulkanH_Window* wd, ImDrawData* draw_data)
 
 	ImGui_ImplVulkanH_Frame* fd = &wd->Frames[wd->FrameIndex];
 	{
-		err = vkWaitForFences(Device, 1, &fd->Fence, VK_TRUE, UINT64_MAX);    // wait indefinitely instead of periodically checking
+		err = vkWaitForFences(context.GetDevice(), 1, &fd->Fence, VK_TRUE, UINT64_MAX);    // wait indefinitely instead of periodically checking
 		//check_vk_result(err);
 
-		err = vkResetFences(Device, 1, &fd->Fence);
+		err = vkResetFences(context.GetDevice(), 1, &fd->Fence);
 		//check_vk_result(err);
 	}
 	{
-		err = vkResetCommandPool(Device, fd->CommandPool, 0);
+		err = vkResetCommandPool(context.GetDevice(), fd->CommandPool, 0);
 		//check_vk_result(err);
 		VkCommandBufferBeginInfo info = {};
 		info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -254,7 +138,7 @@ static void FrameRender(ImGui_ImplVulkanH_Window* wd, ImDrawData* draw_data)
 
 		err = vkEndCommandBuffer(fd->CommandBuffer);
 		//check_vk_result(err);
-		err = vkQueueSubmit(Queue, 1, &info, fd->Fence);
+		err = vkQueueSubmit(context.GetGraphicsQueue().queue, 1, &info, fd->Fence);
 		//check_vk_result(err);
 	}
 }
@@ -271,7 +155,7 @@ static void FramePresent(ImGui_ImplVulkanH_Window* wd)
 	info.swapchainCount = 1;
 	info.pSwapchains = &wd->Swapchain;
 	info.pImageIndices = &wd->FrameIndex;
-	VkResult err = vkQueuePresentKHR(Queue, &info);
+	VkResult err = vkQueuePresentKHR(context.GetGraphicsQueue().queue, &info);
 	if (err == VK_ERROR_OUT_OF_DATE_KHR || err == VK_SUBOPTIMAL_KHR)
 		SwapChainRebuild = true;
 	if (err == VK_ERROR_OUT_OF_DATE_KHR)
@@ -283,30 +167,51 @@ static void FramePresent(ImGui_ImplVulkanH_Window* wd)
 //=============================================================================
 static void CleanupVulkan()
 {
-	vkDestroyDescriptorPool(Device, DescriptorPool, Allocator);
-
-#ifdef APP_USE_VULKAN_DEBUG_REPORT
-	// Remove the debug report callback
-	auto f_vkDestroyDebugReportCallbackEXT = (PFN_vkDestroyDebugReportCallbackEXT)vkGetInstanceProcAddr(Instance, "vkDestroyDebugReportCallbackEXT");
-	f_vkDestroyDebugReportCallbackEXT(Instance, DebugReport, Allocator);
-#endif // APP_USE_VULKAN_DEBUG_REPORT
-
-	vkDestroyDevice(Device, Allocator);
-	vkDestroyInstance(Instance, Allocator);
+	vkDestroyDescriptorPool(context.GetDevice(), DescriptorPool, Allocator);
 }
 //=============================================================================
 static void CleanupVulkanWindow(ImGui_ImplVulkanH_Window* wd)
 {
-	ImGui_ImplVulkanH_DestroyWindow(Instance, Device, wd, Allocator);
-	vkDestroySurfaceKHR(Instance, wd->Surface, Allocator);
+	ImGui_ImplVulkanH_DestroyWindow(context.GetInstance(), context.GetDevice(), wd, Allocator);
+	vkDestroySurfaceKHR(context.GetInstance(), wd->Surface, Allocator);
 }
 //=============================================================================
 bool gpu::Init(const CreateInfo& createInfo)
 {
-	ImVector<const char*> extensions;
-	extensions.push_back("VK_KHR_surface");
-	extensions.push_back("VK_KHR_win32_surface");
-	if (!SetupVulkan(extensions))
+	// Vulkan feature structs - allocated on the stack
+	VkPhysicalDeviceUnifiedImageLayoutsFeaturesKHR unifiedImageLayoutsFeature{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFIED_IMAGE_LAYOUTS_FEATURES_KHR };
+	// Descriptor heap replaces traditional descriptor sets/pools with GPU buffer-based bindless descriptors.
+	// Samplers and images are written into heap buffers and accessed by index in the shaders.
+	VkPhysicalDeviceDescriptorHeapFeaturesEXT descriptorHeapFeatures{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_FEATURES_EXT };
+	// Untyped pointers: required by descriptor heap
+	VkPhysicalDeviceShaderUntypedPointersFeaturesKHR untypedPtrFeatures{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR };
+	// Shader objects: replace VkPipeline for graphics with linkable, reusable VkShaderEXT
+	// objects bound via vkCmdBindShadersEXT. Pairs naturally with the layout=NULL design:
+	// there is no graphics pipeline object at all, only shader objects + dynamic state.
+	VkPhysicalDeviceShaderObjectFeaturesEXT shaderObjectFeatures{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_OBJECT_FEATURES_EXT };
+	// Extended dynamic state 3: required by shader objects for blend/rasterization
+	// state that no longer lives in a pipeline object.
+	VkPhysicalDeviceExtendedDynamicState3FeaturesEXT dynamicState3Features{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT };
+	// Vertex input dynamic state: required by shader objects (vertex bindings/attributes
+	// become a vkCmdSetVertexInputEXT call instead of pipeline state).
+	VkPhysicalDeviceVertexInputDynamicStateFeaturesEXT vertexInputDynamicStateFeatures{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_INPUT_DYNAMIC_STATE_FEATURES_EXT };
+
+	// Configure Vulkan context with required and optional extensions
+	ContextCreateInfo contextConfig;
+
+	// Required extensions (with their feature struct pointers)
+	contextConfig.deviceExtensions.push_back({ VK_KHR_SWAPCHAIN_EXTENSION_NAME, true, nullptr });
+	contextConfig.deviceExtensions.push_back({ VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME, true, &unifiedImageLayoutsFeature });
+	contextConfig.deviceExtensions.push_back({ VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME, true, &descriptorHeapFeatures });  // Bindless descriptor heap for textures and samplers
+	contextConfig.deviceExtensions.push_back({ VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME, true, &untypedPtrFeatures });  // Required by bindless
+	contextConfig.deviceExtensions.push_back({ VK_EXT_SHADER_OBJECT_EXTENSION_NAME, true, &shaderObjectFeatures });  // Graphics: shader objects instead of pipelines
+	contextConfig.deviceExtensions.push_back({ VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME, true, &dynamicState3Features });  // Required for shader-object blend/rasterization state
+	contextConfig.deviceExtensions.push_back({ VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME, true,  &vertexInputDynamicStateFeatures });  // Required for shader-object vertex input
+
+
+	if (!context.Init(contextConfig))
+		return false;
+	if (!SetupVulkan())
 		return false;
 
 	// Create Window Surface
@@ -314,7 +219,7 @@ bool gpu::Init(const CreateInfo& createInfo)
 	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
 	surfaceCreateInfo.hwnd = createInfo.hwnd;
 	surfaceCreateInfo.hinstance = createInfo.instance;
-	if (vkCreateWin32SurfaceKHR(Instance, &surfaceCreateInfo, nullptr, &surface) != VK_SUCCESS)
+	if (vkCreateWin32SurfaceKHR(context.GetInstance(), &surfaceCreateInfo, nullptr, &surface) != VK_SUCCESS)
 	{
 		printf("Failed to create Vulkan surface.\n");
 		return 1;
@@ -343,11 +248,11 @@ bool gpu::Init(const CreateInfo& createInfo)
 	ImGui_ImplWin32_Init(createInfo.hwnd);
 	ImGui_ImplVulkan_InitInfo init_info = {};
 	//init_info.ApiVersion = VK_API_VERSION_1_3;              // Pass in your value of VkApplicationInfo::apiVersion, otherwise will default to header version.
-	init_info.Instance = Instance;
-	init_info.PhysicalDevice = PhysicalDevice;
-	init_info.Device = Device;
-	init_info.QueueFamily = QueueFamily;
-	init_info.Queue = Queue;
+	init_info.Instance = context.GetInstance();
+	init_info.PhysicalDevice = context.GetPhysicalDevice();
+	init_info.Device = context.GetDevice();
+	init_info.QueueFamily = context.GetGraphicsQueue().familyIndex;
+	init_info.Queue = context.GetGraphicsQueue().queue;
 	init_info.PipelineCache = PipelineCache;
 	init_info.DescriptorPool = DescriptorPool;
 	init_info.MinImageCount = MinImageCount;
@@ -384,15 +289,13 @@ bool gpu::Init(const CreateInfo& createInfo)
 //=============================================================================
 void gpu::Close()
 {
-	// Cleanup
-	VkResult err = vkDeviceWaitIdle(Device);
-	//check_vk_result(err);
-	ImGui_ImplVulkan_Shutdown();
-	ImGui_ImplWin32_Shutdown();
-	ImGui::DestroyContext();
-
 	CleanupVulkanWindow(&MainWindowData);
 	CleanupVulkan();
+
+	ImGui_ImplVulkan_Shutdown();
+	context.Close();
+	ImGui_ImplWin32_Shutdown();
+	ImGui::DestroyContext();
 }
 //=============================================================================
 void gpu::BeginFrame()
@@ -405,7 +308,7 @@ void gpu::BeginFrame()
 		if (SwapChainRebuild || MainWindowData.Width != fbWidth || MainWindowData.Height != fbHeight)
 		{
 			ImGui_ImplVulkan_SetMinImageCount(MinImageCount);
-			ImGui_ImplVulkanH_CreateOrResizeWindow(Instance, PhysicalDevice, Device, &MainWindowData, QueueFamily, Allocator, fbWidth, fbHeight, MinImageCount, 0);
+			ImGui_ImplVulkanH_CreateOrResizeWindow(context.GetInstance(), context.GetPhysicalDevice(), context.GetDevice(), &MainWindowData, context.GetGraphicsQueue().familyIndex, Allocator, fbWidth, fbHeight, MinImageCount, 0);
 			MainWindowData.FrameIndex = 0;
 			SwapChainRebuild = false;
 		}
