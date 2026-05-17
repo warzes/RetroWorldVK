@@ -47,6 +47,9 @@
     <ClInclude Include="gpu_system.h">
       <Filter>gpu</Filter>
     </ClInclude>
+    <ClInclude Include="_gpu_core.h">
+      <Filter>gpu\private</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp" />
@@ -74,6 +77,9 @@
     <ClCompile Include="gpu_system.cpp">
       <Filter>gpu</Filter>
     </ClCompile>
+    <ClCompile Include="_gpu_core.cpp">
+      <Filter>gpu\private</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="core">
@@ -90,6 +96,9 @@
     </Filter>
     <Filter Include="gpu">
       <UniqueIdentifier>{ae399b3d-ac12-4d26-b341-99b05dc2b5f5}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="gpu\private">
+      <UniqueIdentifier>{98f5feb7-361f-432e-9f1f-815ae6604408}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 </Project>

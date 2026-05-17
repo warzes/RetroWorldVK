@@ -3,7 +3,4 @@
 namespace gpu
 {
 
-
-
-
 } // namespace gpu

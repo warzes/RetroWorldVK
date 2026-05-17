@@ -1,6 +1,6 @@
 ﻿#pragma once
 
-namespace app::window
+namespace window
 {
 	struct WindowCreateInfo final
 	{
@@ -13,7 +13,7 @@ namespace app::window
 	bool Init(const WindowCreateInfo& createInfo);
 	void Close();
 	bool IsShouldClose() noexcept;
-	void PollEvents();
+	bool PollEvents();
 
 	HWND GetHwnd();
 	HINSTANCE GetInstance();

@@ -40,12 +40,12 @@ static void DrawFPS()
 //=============================================================================
 static bool Init(const app::AppCreateInfo& info)
 {
-	if (!app::window::Init(info.window))
+	if (!window::Init(info.window))
 		return false;
 
 	gpu::CreateInfo gpuCreateInfo{};
-	gpuCreateInfo.hwnd = app::window::GetHwnd();
-	gpuCreateInfo.instance = app::window::GetInstance();
+	gpuCreateInfo.hwnd     = window::GetHwnd();
+	gpuCreateInfo.instance = window::GetInstance();
 	if (!gpu::Init(gpuCreateInfo))
 		return false;
 
@@ -63,13 +63,13 @@ static bool Init(const app::AppCreateInfo& info)
 static void Close()
 {
 	gpu::Close();
-	app::window::Close();
+	window::Close();
 	isExitApp = true;
 }
 //=============================================================================
 static bool IsShouldClose() noexcept
 {
-	return isExitApp || app::window::IsShouldClose();
+	return isExitApp || window::IsShouldClose();
 }
 //=============================================================================
 static void TimerUpdate()
@@ -96,13 +96,16 @@ static void TimerUpdate()
 	accumulator += deltaTime;
 }
 //=============================================================================
-static void Update(const app::AppCreateInfo& info)
+static bool Update(const app::AppCreateInfo& info)
 {
 	TimerUpdate();
 
-	app::window::PollEvents();
+	if (!window::PollEvents())
+		return false;
 
 	if (info.update_cb) info.update_cb();
+
+	return true;
 }
 //=============================================================================
 static void FixedUpdate(const app::AppCreateInfo& info)
@@ -114,6 +117,10 @@ static void Frame(const app::AppCreateInfo& info)
 {
 	gpu::BeginFrame();
 
+	if (info.render_cb) info.render_cb();
+	if (info.renderUi_cb) info.renderUi_cb();
+
+	if (drawFPS) DrawFPS();
 	gpu::EndFrame();
 }
 //=============================================================================
@@ -127,17 +134,19 @@ void app::Run(const app::AppCreateInfo& info)
 		{
 			while (!IsShouldClose())
 			{
-				Update(info);
-
-				int steps = 0;
-				while (accumulator >= fixedDeltaTime && steps < maxFixedSteps)
+				if (Update(info))
 				{
-					FixedUpdate(info);
-					accumulator -= fixedDeltaTime;
-					steps++;
-				}
+					int steps = 0;
+					while (accumulator >= fixedDeltaTime && steps < maxFixedSteps)
+					{
+						FixedUpdate(info);
+						accumulator -= fixedDeltaTime;
+						steps++;
+					}
 
-				Frame(info);
+					//if (!windowMinimized)
+						Frame(info);
+				}
 			}
 		}
 

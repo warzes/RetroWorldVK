@@ -75,7 +75,6 @@
 
 #include <volk/volk.h>
 #include <vma/vk_mem_alloc.h>
-#include <vulkan/vk_enum_string_helper.h>
 
 #include <imgui/imgui.h>
 #include <imgui/imgui_impl_win32.h>

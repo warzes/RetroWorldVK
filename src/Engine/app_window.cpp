@@ -19,8 +19,6 @@ namespace
 	MSG       msg = {};
 }
 //=============================================================================
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-//=============================================================================
 static void windowSetSize(uint16_t w, uint16_t h) noexcept
 {
 	windowWidth = std::max(w, static_cast<uint16_t>(1));
@@ -28,17 +26,17 @@ static void windowSetSize(uint16_t w, uint16_t h) noexcept
 	windowAspect = static_cast<float>(windowWidth) / static_cast<float>(windowHeight);
 }
 //=============================================================================
-uint16_t app::window::GetWidth() noexcept
+uint16_t window::GetWidth() noexcept
 {
 	return windowWidth;
 }
 //=============================================================================
-uint16_t app::window::GetHeight() noexcept
+uint16_t window::GetHeight() noexcept
 {
 	return windowHeight;
 }
 //=============================================================================
-float app::window::GetWindowAspect() noexcept
+float window::GetWindowAspect() noexcept
 {
 	return windowAspect;
 }
@@ -46,6 +44,7 @@ float app::window::GetWindowAspect() noexcept
 // Main message handler for the sample.
 static LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) noexcept
 {
+	extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 	if (ImGui_ImplWin32_WndProcHandler(hWnd, message, wParam, lParam))
 		return 0;
 
@@ -85,27 +84,26 @@ static LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARA
 	return DefWindowProc(hWnd, message, wParam, lParam);
 }
 //=============================================================================
-bool app::window::Init(const WindowCreateInfo& createInfo)
+bool window::Init(const WindowCreateInfo& createInfo)
 {
 	resizing = false;
+	windowClose = false;
 
 	instance = GetModuleHandle(nullptr);
 
-	// Make process DPI aware and obtain main monitor scale
 	ImGui_ImplWin32_EnableDpiAwareness();
 	float mainScale = ImGui_ImplWin32_GetDpiScaleForMonitor(::MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY));
 
-	// Initialize the window class.
 	WNDCLASSEX windowClass    = { 0 };
 	windowClass.cbSize        = sizeof(WNDCLASSEX);
-	windowClass.style         = CS_HREDRAW | CS_VREDRAW;
+	windowClass.style         = CS_CLASSDC;
 	windowClass.lpfnWndProc   = WindowProc;
 	windowClass.hInstance     = instance;
 	windowClass.hCursor       = LoadCursor(NULL, IDC_ARROW);
 	windowClass.lpszClassName = ClassName;
 	if (!RegisterClassEx(&windowClass))
 	{
-		core::Error("Failed to register window class");
+		core::Fatal("Failed to register window class");
 		return false;
 	}
 
@@ -114,7 +112,6 @@ bool app::window::Init(const WindowCreateInfo& createInfo)
 		static_cast<LONG>((float)createInfo.height * mainScale) };
 	AdjustWindowRect(&windowRect, WS_OVERLAPPEDWINDOW, FALSE);
 
-	// Create the window and store a handle to it.
 	hwnd = CreateWindow(ClassName, createInfo.title.c_str(), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, windowRect.right - windowRect.left, windowRect.bottom - windowRect.top, nullptr, nullptr, instance, nullptr);
 	if (!hwnd)
 	{
@@ -128,14 +125,13 @@ bool app::window::Init(const WindowCreateInfo& createInfo)
 		static_cast<uint16_t>(clientRect.right - clientRect.left),
 		static_cast<uint16_t>(clientRect.bottom - clientRect.top));
 
-	// Show the window
 	ShowWindow(hwnd, SW_SHOWDEFAULT);
+	UpdateWindow(hwnd);
 
-	windowClose = false;
 	return true;
 }
 //=============================================================================
-void app::window::Close()
+void window::Close()
 {
 	if (hwnd) DestroyWindow(hwnd);
 	if (instance) UnregisterClass(ClassName, instance);
@@ -143,12 +139,12 @@ void app::window::Close()
 	windowClose = true;
 }
 //=============================================================================
-bool app::window::IsShouldClose() noexcept
+bool window::IsShouldClose() noexcept
 {
 	return windowClose;
 }
 //=============================================================================
-void app::window::PollEvents()
+bool window::PollEvents()
 {
 	while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
 	{
@@ -158,17 +154,18 @@ void app::window::PollEvents()
 		if (msg.message == WM_QUIT)
 		{
 			windowClose = true;
-			return;
+			return false;
 		}
 	}
+	return true;
 }
 //=============================================================================
-HWND app::window::GetHwnd()
+HWND window::GetHwnd()
 {
 	return hwnd;
 }
 //=============================================================================
-HINSTANCE app::window::GetInstance()
+HINSTANCE window::GetInstance()
 {
 	return instance;
 }
