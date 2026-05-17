@@ -1,0 +1,16 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+  </Configurations>
+  <Folder Name="/DOC/">
+    <File Path="3rdparty.md" />
+    <File Path="other.md" />
+    <File Path="vulkan.md" />
+  </Folder>
+  <Project Path="3rdparty/3rdparty.vcxproj" Id="85d00892-bf33-46df-b47c-bdfc3b6937a1" />
+  <Project Path="Engine/Engine.vcxproj" Id="c46b92ad-642b-4901-8b8b-c55733bb2556" />
+  <Project Path="Game/Game.vcxproj" Id="4fee6481-3b13-4959-a926-e279903c3e4c">
+    <BuildDependency Project="3rdparty/3rdparty.vcxproj" />
+    <BuildDependency Project="Engine/Engine.vcxproj" />
+  </Project>
+</Solution>
