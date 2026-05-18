@@ -99,3 +99,67 @@ struct QueueInfo final
 	uint32_t queueIndex = ~0U;  // Index of the queue in the family
 	VkQueue  queue{};           // The queue object
 };
+
+// RESOURCE TYPES
+
+/*--
+ * A buffer is a region of memory used to store data.
+ * It is used to store vertex data, index data, uniform data, and other types of data.
+ * There is a VkBuffer object that represents the buffer, and a VmaAllocation object that represents the memory allocation.
+ * The address is used to access the buffer in the shader.
+-*/
+struct Buffer final
+{
+	VkBuffer        buffer{};      // Vulkan Buffer
+	VmaAllocation   allocation{};  // Memory associated with the buffer
+	VkDeviceAddress address{};     // Address of the buffer in the shader
+};
+
+/*--
+ * An image is a region of memory used to store image data.
+ * It is used to store texture data, framebuffer data, and other types of data.
+-*/
+struct Image final
+{
+	VkImage       image{};       // Vulkan Image
+	VmaAllocation allocation{};  // Memory associated with the image
+};
+
+/*--
+ * The image resource is an image with an image view and a layout.
+ * and other information like format and extent.
+-*/
+struct ImageResource final
+{
+	VkImage       image{};       // Vulkan Image
+	VmaAllocation allocation{};  // Memory associated with the image
+
+	VkExtent2D    extent{};      // Size of the image
+	VkFormat      format{};      // Format of the image (e.g. VK_FORMAT_R8G8B8A8_UNORM)
+	VkImageLayout layout{};      // Layout of the image (color attachment, shader read, ...)
+};
+
+//--- Image layout helpers ------------------------------------------------------
+
+/*--
+ * Initialize a newly created image to GENERAL layout (used for color/depth buffers)
+-*/
+inline void cmdInitImageLayout(VkCommandBuffer cmd, VkImage image, VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_COLOR_BIT)
+{
+	const VkImageMemoryBarrier2 barrier{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+		.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+		.srcAccessMask = VK_ACCESS_2_NONE,
+		.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+		.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT,
+		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		.newLayout = VK_IMAGE_LAYOUT_GENERAL,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image = image,
+		.subresourceRange = {aspectMask, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS} };
+
+	const VkDependencyInfo depInfo{ .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &barrier };
+
+	vkCmdPipelineBarrier2(cmd, &depInfo);
+}

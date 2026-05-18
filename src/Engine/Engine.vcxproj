@@ -120,6 +120,7 @@
     <ClInclude Include="_vk_core.h" />
     <ClInclude Include="_vk_context.h" />
     <ClInclude Include="_vk_debugUtils.h" />
+    <ClInclude Include="_vk_resourceAllocator.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="app.cpp" />
@@ -130,6 +131,10 @@
     <ClCompile Include="core_string.cpp" />
     <ClCompile Include="gpu_core.cpp" />
     <ClCompile Include="gpu_system.cpp" />
+    <ClCompile Include="gpu_system_temp.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="mathTest.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
@@ -137,6 +142,7 @@
     </ClCompile>
     <ClCompile Include="_vk_core.cpp" />
     <ClCompile Include="_vk_context.cpp" />
+    <ClCompile Include="_vk_resourceAllocator.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

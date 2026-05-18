@@ -128,7 +128,7 @@ static void Frame(const app::AppCreateInfo& info)
 	if (info.render_cb) info.render_cb();
 	if (info.renderUi_cb) info.renderUi_cb();
 
-	if (drawFPS) DrawFPS();
+	//if (drawFPS) DrawFPS();
 	gpu::EndFrame();
 }
 //=============================================================================

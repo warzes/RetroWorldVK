@@ -71,6 +71,9 @@
     <ClInclude Include="_vk_debugUtils.h">
       <Filter>gpu\private</Filter>
     </ClInclude>
+    <ClInclude Include="_vk_resourceAllocator.h">
+      <Filter>gpu\private</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp" />
@@ -105,6 +108,12 @@
       <Filter>core</Filter>
     </ClCompile>
     <ClCompile Include="_vk_context.cpp">
+      <Filter>gpu\private</Filter>
+    </ClCompile>
+    <ClCompile Include="gpu_system_temp.cpp">
+      <Filter>gpu</Filter>
+    </ClCompile>
+    <ClCompile Include="_vk_resourceAllocator.cpp">
       <Filter>gpu\private</Filter>
     </ClCompile>
   </ItemGroup>
