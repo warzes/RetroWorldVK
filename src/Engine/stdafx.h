@@ -65,6 +65,7 @@
 #include <cmath>
 
 #include <chrono>
+#include <thread>
 #include <filesystem>
 #include <fstream>
 #include <string>

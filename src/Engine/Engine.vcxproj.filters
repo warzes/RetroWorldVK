@@ -47,9 +47,6 @@
     <ClInclude Include="gpu_system.h">
       <Filter>gpu</Filter>
     </ClInclude>
-    <ClInclude Include="_vk_core.h">
-      <Filter>gpu\private</Filter>
-    </ClInclude>
     <ClInclude Include="_app_window.h">
       <Filter>app\private</Filter>
     </ClInclude>
@@ -64,15 +61,6 @@
     </ClInclude>
     <ClInclude Include="core_string.h">
       <Filter>core</Filter>
-    </ClInclude>
-    <ClInclude Include="_vk_context.h">
-      <Filter>gpu\private</Filter>
-    </ClInclude>
-    <ClInclude Include="_vk_debugUtils.h">
-      <Filter>gpu\private</Filter>
-    </ClInclude>
-    <ClInclude Include="_vk_resourceAllocator.h">
-      <Filter>gpu\private</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -101,20 +89,8 @@
     <ClCompile Include="gpu_system.cpp">
       <Filter>gpu</Filter>
     </ClCompile>
-    <ClCompile Include="_vk_core.cpp">
-      <Filter>gpu\private</Filter>
-    </ClCompile>
     <ClCompile Include="core_string.cpp">
       <Filter>core</Filter>
-    </ClCompile>
-    <ClCompile Include="_vk_context.cpp">
-      <Filter>gpu\private</Filter>
-    </ClCompile>
-    <ClCompile Include="gpu_system_temp.cpp">
-      <Filter>gpu</Filter>
-    </ClCompile>
-    <ClCompile Include="_vk_resourceAllocator.cpp">
-      <Filter>gpu\private</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
