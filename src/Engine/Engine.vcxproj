@@ -123,6 +123,7 @@
     <ClInclude Include="_vk_context.h" />
     <ClInclude Include="_vk_core.h" />
     <ClInclude Include="_vk_debugUtils.h" />
+    <ClInclude Include="_vk_resurces.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="app.cpp" />
@@ -145,6 +146,7 @@
     </ClCompile>
     <ClCompile Include="_vk_context.cpp" />
     <ClCompile Include="_vk_core.cpp" />
+    <ClCompile Include="_vk_resurces.cpp" />
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="shaders\shader.frag.glsl">

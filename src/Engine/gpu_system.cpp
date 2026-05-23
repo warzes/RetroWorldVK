@@ -3,6 +3,7 @@
 #include "app_window.h"
 #include "core_log.h"
 #include "_vk_context.h"
+#include "_vk_resurces.h"
 #include "shaders/_autogen/shader.vert.glsl.h"
 #include "shaders/_autogen/shader.frag.glsl.h"
 //=============================================================================
@@ -13,8 +14,7 @@ namespace
 
 	Context           context{};          // The Vulkan context
 	VkSurfaceKHR      surface{ nullptr }; // The window surface
-
-	VmaAllocator allocator;
+	ResourceAllocator allocator;        // The VMA allocator
 
 	VkSwapchainKHR swapchain = VK_NULL_HANDLE;
 	std::vector<VkImage> swapchainImages;
@@ -37,14 +37,14 @@ namespace
 	VkShaderEXT shaders[2];
 
 	struct Vertex { float x, y, r, g, b; };
-	VkBuffer vertexBuffer, indexBuffer;
-	VmaAllocation vertexBufferAllocation, indexBufferAllocation;
+	Buffer vertexBuffer;
+	Buffer indexBuffer;
 
 	std::vector<Vertex> vertices = {
-	{ -0.5f,  0.5f,  1.0f, 0.0f, 0.0f }, // Top-left     (Red)
-	{  0.5f,  0.5f,  0.0f, 1.0f, 0.0f }, // Top-right    (Green)
-	{  0.5f, -0.5f,  0.0f, 0.0f, 1.0f }, // Bottom-right (Blue)
-	{ -0.5f, -0.5f,  1.0f, 1.0f, 1.0f }  // Bottom-left  (White)
+		{ -0.5f,  0.5f,  1.0f, 0.0f, 0.0f }, // Top-left     (Red)
+		{  0.5f,  0.5f,  0.0f, 1.0f, 0.0f }, // Top-right    (Green)
+		{  0.5f, -0.5f,  0.0f, 0.0f, 1.0f }, // Bottom-right (Blue)
+		{ -0.5f, -0.5f,  1.0f, 1.0f, 1.0f }  // Bottom-left  (White)
 	};
 	std::vector<uint32_t> indices = { 0, 1, 2, 2, 3, 0 };
 
@@ -232,42 +232,26 @@ bool gpu::Init(const CreateInfo& createInfo)
 	if (!context.Init())
 		return false;
 
-	// Create Window Surface
 	VkWin32SurfaceCreateInfoKHR surfaceCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
 		.hinstance = createInfo.instance,
 		.hwnd = createInfo.hwnd,
 	};
-	if (vkCreateWin32SurfaceKHR(context.GetInstance(), &surfaceCreateInfo, nullptr, &surface) != VK_SUCCESS)
-	{
-		printf("Failed to create Vulkan surface.\n");
-		return false;
-	}
-
-	// 9. VmaAllocator
-	VmaAllocatorCreateInfo allocatorInfo = {
-		.physicalDevice = context.GetPhysicalDevice(),
-		.device = context.GetDevice(),
-		.instance = context.GetInstance(),
-		.vulkanApiVersion = std::min(context.GetDeviceApiVersion(), VK_API_VERSION_1_4)
-	};
-	allocatorInfo.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;  // allow querying for the GPU address of a buffer
-	allocatorInfo.flags |= VMA_ALLOCATOR_CREATE_KHR_MAINTENANCE4_BIT;
-	allocatorInfo.flags |= VMA_ALLOCATOR_CREATE_KHR_MAINTENANCE5_BIT;  // allow using VkBufferUsageFlags2CreateInfo
-
-	// Because we use VMA_DYNAMIC_VULKAN_FUNCTIONS
-	const VmaVulkanFunctions functions = {
-		.vkGetInstanceProcAddr = vkGetInstanceProcAddr,
-		.vkGetDeviceProcAddr = vkGetDeviceProcAddr,
-	};
-	allocatorInfo.pVulkanFunctions = &functions;
-
-	VkResult result = vmaCreateAllocator(&allocatorInfo, &allocator);
+	VkResult result = vkCreateWin32SurfaceKHR(context.GetInstance(), &surfaceCreateInfo, nullptr, &surface);
 	if (result != VK_SUCCESS)
 	{
-		core::Fatal("vmaCreateAllocator failed: " + VkResultStr(result));
+		core::Fatal("Failed to create Vulkan surface. " + VkResultStr(result));
 		return false;
 	}
+
+	VmaAllocatorCreateInfo allocatorInfo = {
+		.physicalDevice   = context.GetPhysicalDevice(),
+		.device           = context.GetDevice(),
+		.instance         = context.GetInstance(),
+		.vulkanApiVersion = std::min(context.GetDeviceApiVersion(), VK_API_VERSION_1_4)
+	};
+	if (!allocator.Init(allocatorInfo))
+		return false;
 
 	// 13. Sync Objects
 	VkFenceCreateInfo fenceInfo = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .flags = VK_FENCE_CREATE_SIGNALED_BIT };
@@ -293,31 +277,18 @@ bool gpu::Init(const CreateInfo& createInfo)
 
 	createGraphicsShaders();
 
-	// 15. VkBuffer (VMA)
-
-	VkBufferCreateInfo vertexBufferInfo = {
-	   .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = vertices.size() * sizeof(Vertex),
-	   .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, .sharingMode = VK_SHARING_MODE_EXCLUSIVE
-	};
-	VmaAllocationCreateInfo vertexAllocInfo = { .usage = VMA_MEMORY_USAGE_CPU_TO_GPU };
-	vmaCreateBuffer(allocator, &vertexBufferInfo, &vertexAllocInfo, &vertexBuffer, &vertexBufferAllocation, nullptr);
-
+	// Buffer (VMA)
+	vertexBuffer = allocator.CreateBuffer(vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_2_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 	void* vertexMappedData;
-	vmaMapMemory(allocator, vertexBufferAllocation, &vertexMappedData);
+	vmaMapMemory(allocator, vertexBuffer.allocation, &vertexMappedData);
 	std::memcpy(vertexMappedData, vertices.data(), vertices.size() * sizeof(Vertex));
-	vmaUnmapMemory(allocator, vertexBufferAllocation);
+	vmaUnmapMemory(allocator, vertexBuffer.allocation);
 
-	VkBufferCreateInfo indexBufferInfo = {
-	   .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = indices.size() * sizeof(uint32_t),
-	   .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT, .sharingMode = VK_SHARING_MODE_EXCLUSIVE
-	};
-	VmaAllocationCreateInfo indexAllocInfo = { .usage = VMA_MEMORY_USAGE_CPU_TO_GPU };
-	vmaCreateBuffer(allocator, &indexBufferInfo, &indexAllocInfo, &indexBuffer, &indexBufferAllocation, nullptr);
-
+	indexBuffer = allocator.CreateBuffer(indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_2_INDEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 	void* indexMappedData;
-	vmaMapMemory(allocator, indexBufferAllocation, &indexMappedData);
+	vmaMapMemory(allocator, indexBuffer.allocation, &indexMappedData);
 	std::memcpy(indexMappedData, indices.data(), indices.size() * sizeof(uint32_t));
-	vmaUnmapMemory(allocator, indexBufferAllocation);
+	vmaUnmapMemory(allocator, indexBuffer.allocation);
 
 	return true;
 }
@@ -326,9 +297,9 @@ void gpu::Close()
 {
 	if (context.GetDevice()) vkDeviceWaitIdle(context.GetDevice());
 
-	vmaDestroyBuffer(allocator, vertexBuffer, vertexBufferAllocation);
-	vmaDestroyBuffer(allocator, indexBuffer, indexBufferAllocation);
-	vmaDestroyAllocator(allocator);
+	allocator.DestroyBuffer(vertexBuffer);
+	allocator.DestroyBuffer(indexBuffer);
+	allocator.Close();
 
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 		vkDestroySemaphore(context.GetDevice(), semImageAvailable[i], nullptr);
@@ -439,9 +410,9 @@ void Draw()
 	vkCmdBindShadersEXT(cmd, uint32_t(stages.size()), stages.data(), inshaders.data());
 
 	VkDeviceSize offsets[] = { 0 }; // Смещение для вершинного буфера
-	vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, offsets); // Привязываем вершинный буфер
+	vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer.buffer, offsets); // Привязываем вершинный буфер
 
-	vkCmdBindIndexBuffer(cmd, indexBuffer, 0, VK_INDEX_TYPE_UINT32); // Привязываем индексный буфер
+	vkCmdBindIndexBuffer(cmd, indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32); // Привязываем индексный буфер
 
 	vkCmdDrawIndexed(cmd, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
