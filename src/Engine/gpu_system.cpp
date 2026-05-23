@@ -3,7 +3,9 @@
 #include "app_window.h"
 #include "core_log.h"
 #include "_vk_context.h"
+#include "_vk_swapchain.h"
 #include "_vk_resurces.h"
+#include "_vk_debugUtils.h"
 #include "shaders/_autogen/shader.vert.glsl.h"
 #include "shaders/_autogen/shader.frag.glsl.h"
 //=============================================================================
@@ -14,25 +16,23 @@ namespace
 
 	Context           context{};          // The Vulkan context
 	VkSurfaceKHR      surface{ nullptr }; // The window surface
-	ResourceAllocator allocator;        // The VMA allocator
+	ResourceAllocator allocator;          // The VMA allocator
+	Swapchain         swapchain;          // The swapchain
 
-	VkSwapchainKHR swapchain = VK_NULL_HANDLE;
-	std::vector<VkImage> swapchainImages;
-	std::vector<VkImageView> swapchainImageViews;
-	VkFormat swapchainFormat = VK_FORMAT_B8G8R8A8_SRGB;
-	VkExtent2D swapchainExtent = { 800, 600 };
+	VkCommandPool transientCmdPool{};
 
-	VkCommandPool cmdPool;
-	VkCommandBuffer cmdBuffers[2];
+	// Frame resources and synchronization
+	struct FrameData final
+	{
+		VkCommandPool   cmdPool;          // Command pool for recording commands for this frame
+		VkCommandBuffer cmdBuffer;        // Command buffer containing the frame's rendering commands
+		uint64_t        lastSignalValue;  // Timeline value last signaled for this frame's resources
+	};
+	std::vector<FrameData> frameData;      // Collection of per-frame resources to support multiple frames in flight
+	VkSemaphore frameTimelineSemaphore{};  // Timeline semaphore used to synchronize CPU submission with GPU completion
+	uint64_t    frameCounter{ 1 };           // Monotonic timeline counter (increments each frame)
 
-	const int MAX_FRAMES_IN_FLIGHT = 2;
-	VkSemaphore semImageAvailable[MAX_FRAMES_IN_FLIGHT];
-	VkFence inFlightFences[MAX_FRAMES_IN_FLIGHT];
-	// Семафоры renderFinished теперь зависят от количества картинок в swapchain!
-	std::vector<VkSemaphore> semRenderFinished;
-	VkSemaphoreCreateInfo semInfo = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-
-	uint32_t imageIndex;
+	VkCommandBuffer mainCommandBuffer;
 
 	VkShaderEXT shaders[2];
 
@@ -49,65 +49,6 @@ namespace
 	std::vector<uint32_t> indices = { 0, 1, 2, 2, 3, 0 };
 
 	uint32_t currentFrame = 0;
-}
-void createRenderFinishedSemaphores()
-{
-	for (size_t i = 0; i < semRenderFinished.size(); i++)
-	{
-		vkDestroySemaphore(context.GetDevice(), semRenderFinished[i], nullptr);
-		semRenderFinished[i] = nullptr;
-	}
-
-	semRenderFinished.resize(swapchainImages.size());
-	for (size_t i = 0; i < swapchainImages.size(); i++) {
-		vkCreateSemaphore(context.GetDevice(), &semInfo, nullptr, &semRenderFinished[i]);
-	}
-}
-void createSwapchain(VkSwapchainKHR oldSwapchain = VK_NULL_HANDLE)
-{
-	if (oldSwapchain != VK_NULL_HANDLE)
-	{
-		vkDeviceWaitIdle(context.GetDevice());
-
-		for (auto view : swapchainImageViews) vkDestroyImageView(context.GetDevice(), view, nullptr);
-		swapchainImageViews.clear();
-	}
-
-	VkSurfaceCapabilitiesKHR caps;
-	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(context.GetPhysicalDevice(), surface, &caps);
-	swapchainExtent = caps.currentExtent;
-	if (swapchainExtent.width == UINT32_MAX)
-	{
-		swapchainExtent = { (uint32_t)window::GetWidth(), (uint32_t)window::GetHeight() };
-	}
-
-	VkSwapchainCreateInfoKHR scInfo = {
-		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR, .surface = surface,
-		.minImageCount = caps.minImageCount + 1, .imageFormat = swapchainFormat,
-		.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR, .imageExtent = swapchainExtent,
-		.imageArrayLayers = 1, .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-		.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE, .preTransform = caps.currentTransform,
-		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR, .presentMode = VK_PRESENT_MODE_FIFO_KHR,
-		.clipped = VK_TRUE, .oldSwapchain = oldSwapchain
-	};
-	vkCreateSwapchainKHR(context.GetDevice(), &scInfo, nullptr, &swapchain);
-	if (oldSwapchain != VK_NULL_HANDLE) vkDestroySwapchainKHR(context.GetDevice(), oldSwapchain, nullptr);
-
-	uint32_t imgCount;
-	vkGetSwapchainImagesKHR(context.GetDevice(), swapchain, &imgCount, nullptr);
-	swapchainImages.resize(imgCount);
-	vkGetSwapchainImagesKHR(context.GetDevice(), swapchain, &imgCount, swapchainImages.data());
-
-	swapchainImageViews.resize(imgCount);
-	for (uint32_t i = 0; i < imgCount; i++) {
-		VkImageViewCreateInfo viewInfo = {
-			.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, .image = swapchainImages[i],
-			.viewType = VK_IMAGE_VIEW_TYPE_2D, .format = swapchainFormat,
-			.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 }
-		};
-		vkCreateImageView(context.GetDevice(), &viewInfo, nullptr, &swapchainImageViews[i]);
-	}
-	createRenderFinishedSemaphores();
 }
 
 void setGraphicsDynamicState(VkCommandBuffer cmd, const VkViewport& viewport, const VkRect2D& scissor)
@@ -222,12 +163,232 @@ void createGraphicsShaders()
 	vkCreateShadersEXT(context.GetDevice(), 1, &vertCreateInfo, nullptr, &shaders[0]);
 	vkCreateShadersEXT(context.GetDevice(), 1, &fragCreateInfo, nullptr, &shaders[1]);
 }
+
+/*--
+* Creates a command pool (long life) and buffer for each frame in flight. Unlike the temporary command pool,
+* these pools persist between frames and don't use VK_COMMAND_POOL_CREATE_TRANSIENT_BIT.
+* Each frame gets its own command buffer which records all rendering commands for that frame.
+-*/
+void createFrameSubmission(uint32_t numFrames)
+{
+	VkDevice device = context.GetDevice();
+
+	frameData.resize(numFrames);
+
+	// Initialize timeline semaphore at 0. We'll use a monotonic counter (m_frameCounter) starting at 1.
+	const uint64_t initialValue = 0;
+
+	VkSemaphoreTypeCreateInfo timelineCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
+		.pNext = nullptr,
+		.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
+		.initialValue = initialValue,
+	};
+
+	/*--
+	 * Create timeline semaphore for GPU-CPU synchronization
+	 * This ensures resources aren't overwritten while still in use by the GPU
+	-*/
+	const VkSemaphoreCreateInfo semaphoreCreateInfo{ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, .pNext = &timelineCreateInfo };
+	/*VK_CHECK*/(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &frameTimelineSemaphore));
+	//DBG_VK_NAME(m_frameTimelineSemaphore);
+
+	/*--
+	 * Create command pools and buffers for each frame
+	 * Each frame gets its own command pool to allow parallel command recording while previous frames may still be executing on the GPU
+	-*/
+	const uint32_t queueFamily = context.GetGraphicsQueue().familyIndex;
+
+	for (uint32_t i = 0; i < numFrames; i++)
+	{
+		frameData[i].lastSignalValue = initialValue;  // Initialize to timeline semaphore's initial value
+
+		// Separate pools allow independent reset/recording of commands while other frames are still in-flight
+		if (!CreateCommandPool(frameData[i].cmdPool, device, queueFamily))
+		{
+			core::Fatal("CreateCommandPool failed");
+			// TODO:
+		}
+		//DBG_VK_NAME(m_frameData[i].cmdPool);
+
+		const VkCommandBufferAllocateInfo commandBufferAllocateInfo = {
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+			.commandPool = frameData[i].cmdPool,
+			.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+			.commandBufferCount = 1,
+		};
+		/*VK_CHECK*/(vkAllocateCommandBuffers(device, &commandBufferAllocateInfo, &frameData[i].cmdBuffer));
+		//DBG_VK_NAME(m_frameData[i].cmdBuffer);
+	}
+}
+
+/*---
+* Prepare frame resources - the first step in the rendering process.
+* It looks if the swapchain require rebuild, which happens when the window is resized.
+* It acquires the image from the swapchain to render into.
+* Returns true if we can proceed with rendering, false otherwise.
+-*/
+bool prepareFrameResources()
+{
+	// Check if swapchain needs rebuilding (this internally calls vkQueueWaitIdle())
+	if (swapchain.NeedRebuilding())
+	{
+		windowSize = swapchain.ReInitResources(vSync);
+		//return false;
+	}
+
+	// Wait first, *then* acquire. Waiting on the timeline semaphore guarantees the
+	// GPU has released this slot's resources (command buffer, in-flight data) before
+	// we start reusing them. Acquiring first would mean we hold a swapchain image
+	// while still potentially racing the GPU on per-frame resources -- and in
+	// out-of-order presentation, the wrong slot's wait value would be in scope.
+	auto& frame = frameData[swapchain.GetFrameResourceIndex()];
+
+	// Wait until GPU has finished processing the frame that was using these resources previously
+	// Note: If swapchain was rebuilt above, this wait is essentially a no-op since vkQueueWaitIdle() was already called
+	const VkSemaphoreWaitInfo waitInfo = {
+		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+		.semaphoreCount = 1,
+		.pSemaphores = &frameTimelineSemaphore,
+		.pValues = &frame.lastSignalValue,
+	};
+	/*VK_CHECK*/(vkWaitSemaphores(context.GetDevice(), &waitInfo, std::numeric_limits<uint64_t>::max()));
+#ifdef NVVK_SEMAPHORE_DEBUG
+	LOGI("WaitFrame: \t\t slot=%u waitValue=%llu", m_swapchain.getFrameResourceIndex(),
+		static_cast<unsigned long long>(frame.lastSignalValue));
+#endif
+
+	VkResult result = swapchain.AcquireNextImage(context.GetDevice());
+	/*if (result == VK_ERROR_OUT_OF_DATE_KHR)
+	{
+		windowSize = swapchain.ReInitResources(vSync);
+		return false;
+	}
+	else */if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+	{
+		// Неожиданная ошибка
+		core::Fatal("swapchain failed");
+		return false;
+	}
+	return true;
+}
+
+/*---
+* Begin command buffer recording for the frame
+* It resets the command pool to reuse the command buffer for recording new rendering commands for the current frame.
+* Returns the command buffer for the frame.
+-*/
+VkCommandBuffer beginCommandRecording()
+{
+	VkDevice device = context.GetDevice();
+
+	// Get the frame data for the current in-flight slot (owned by Swapchain).
+	auto& frame = frameData[swapchain.GetFrameResourceIndex()];
+
+	/*--
+	 * Reset the whole command pool to reuse its command buffer for recording
+	 * the current frame. An equivalent alternative is to create the pool with
+	 * VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT and call
+	 * vkResetCommandBuffer() per buffer; whole-pool reset is simpler when each
+	 * pool only contains one buffer (as here).
+	-*/
+	/*VK_CHECK*/(vkResetCommandPool(device, frame.cmdPool, 0));
+	VkCommandBuffer cmd = frame.cmdBuffer;
+
+	// Begin the command buffer recording for the frame
+	const VkCommandBufferBeginInfo beginInfo{ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+											 .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT };
+	/*VK_CHECK*/(vkBeginCommandBuffer(cmd, &beginInfo));
+
+	return cmd;
+}
+/*--
+ * End command buffer recording for the frame
+-*/
+void endCommandRecording(VkCommandBuffer cmd) { /*VK_CHECK*/(vkEndCommandBuffer(cmd)); }
+
+/*--
+   * End the frame by submitting the command buffer to the GPU and presenting the image.
+   * Adds binary semaphores to wait for the image to be available and signal when rendering is done.
+   * Adds the timeline semaphore to signal when the frame is completed.
+   * Moves to the next frame.
+  -*/
+void endFrame(VkCommandBuffer cmd)
+{
+	/*--
+	 * Prepare to submit the current frame for rendering
+	 * First add the swapchain semaphore to wait for the image to be available.
+	-*/
+	std::vector<VkSemaphoreSubmitInfo> waitSemaphores;
+	std::vector<VkSemaphoreSubmitInfo> signalSemaphores;
+	waitSemaphores.push_back({
+		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+		.semaphore = swapchain.GetAcquireSemaphore(),
+		.stageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+		});
+	signalSemaphores.push_back({
+		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+		.semaphore = swapchain.GetPresentSemaphore(),
+		.stageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+		});
+
+	// Get the frame data for the current in-flight slot. The Swapchain owns the
+	// frame-resource index; we use it here so both stay in lockstep by construction.
+	const uint32_t frameSlot = swapchain.GetFrameResourceIndex();
+	auto& frame = frameData[frameSlot];
+
+	/*--
+	 * Calculate the signal value for when this frame completes
+	 * Use monotonic counter that increments by 1 each frame: 1, 2, 3, 4...
+	-*/
+	const uint64_t signalFrameValue = frameCounter++;
+	frame.lastSignalValue = signalFrameValue;  // Store for next time this frame buffer is used
+#ifdef NVVK_SEMAPHORE_DEBUG
+	LOGI("SubmitFrame: \t\t slot=%u signalValue=%llu", frameSlot, static_cast<unsigned long long>(signalFrameValue));
+#endif
+
+	/*--
+	 * Add timeline semaphore to signal when GPU completes this frame
+	 * The color attachment output stage is used since that's when the frame is fully rendered
+	-*/
+	signalSemaphores.push_back({
+		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+		.semaphore = frameTimelineSemaphore,
+		.value = signalFrameValue,
+		.stageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+		});
+
+	// Note : in this sample, we only have one command buffer per frame.
+	const std::array<VkCommandBufferSubmitInfo, 1> cmdBufferInfo{ {{
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+		.commandBuffer = cmd,
+	}} };
+
+	// Populate the submit info to synchronize rendering and send the command buffer
+	const std::array<VkSubmitInfo2, 1> submitInfo{ {{
+		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+		.waitSemaphoreInfoCount = uint32_t(waitSemaphores.size()),    //
+		.pWaitSemaphoreInfos = waitSemaphores.data(),              // Wait for the image to be available
+		.commandBufferInfoCount = uint32_t(cmdBufferInfo.size()),     //
+		.pCommandBufferInfos = cmdBufferInfo.data(),               // Command buffer to submit
+		.signalSemaphoreInfoCount = uint32_t(signalSemaphores.size()),  //
+		.pSignalSemaphoreInfos = signalSemaphores.data(),            // Signal when rendering is finished
+	}} };
+
+	// Submit the command buffer to the GPU and signal when it's done
+	/*VK_CHECK*/(vkQueueSubmit2(context.GetGraphicsQueue().queue, uint32_t(submitInfo.size()), submitInfo.data(), nullptr));
+
+	// Present the image. presentFrame() advances the swapchain's frame-resource
+	// index for us, so the next call to prepareFrameResources() will pick up
+	// the next slot.
+	swapchain.PresentFrame(context.GetGraphicsQueue().queue);
+}
 //=============================================================================
 bool gpu::Init(const CreateInfo& createInfo)
 {
 	vSync = createInfo.vSync;
-	windowSize.width = window::GetWidth();
-	windowSize.height = window::GetHeight();
+	//windowSize.width = window::GetWidth();
+	//windowSize.height = window::GetHeight();
 
 	if (!context.Init())
 		return false;
@@ -253,39 +414,39 @@ bool gpu::Init(const CreateInfo& createInfo)
 	if (!allocator.Init(allocatorInfo))
 		return false;
 
-	// 13. Sync Objects
-	VkFenceCreateInfo fenceInfo = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .flags = VK_FENCE_CREATE_SIGNALED_BIT };
-	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-		vkCreateSemaphore(context.GetDevice(), &semInfo, nullptr, &semImageAvailable[i]);
-		vkCreateFence(context.GetDevice(), &fenceInfo, nullptr, &inFlightFences[i]);
-	}
-
-	createSwapchain();
-
-	// 12. VkCommandPool + VkCommandBuffer[]
-	if (!CreateCommandPool(cmdPool, context.GetDevice(), context.GetGraphicsQueue().familyIndex, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT))
+	if (!CreateCommandPool(transientCmdPool, context.GetDevice(), context.GetGraphicsQueue().familyIndex, VK_COMMAND_POOL_CREATE_TRANSIENT_BIT))
 		return false;
+	//DBG_VK_NAME(transientCmdPool);
 
-	VkCommandBufferAllocateInfo cmdAllocInfo = {
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, .commandPool = cmdPool,
-		.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY, .commandBufferCount = 2
-	};
-	vkAllocateCommandBuffers(context.GetDevice(), &cmdAllocInfo, cmdBuffers);
+	swapchain.Init(context.GetPhysicalDevice(), context.GetDevice(), context.GetGraphicsQueue(), surface, transientCmdPool);
+	windowSize = swapchain.InitResources(vSync);  // Update the window size to the actual size of the surface
+
+	// Create what is needed to submit the scene for each frame in-flight
+	// m_frameData is sized by frames-in-flight (CPU parallelism), NOT by
+	// imageCount (GPU/presentation parallelism).
+	createFrameSubmission(swapchain.GetFramesInFlight());
 
 	createGraphicsShaders();
 
 	// Buffer (VMA)
-	vertexBuffer = allocator.CreateBuffer(vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_2_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU).value();
-	void* vertexMappedData;
-	vmaMapMemory(allocator, vertexBuffer.allocation, &vertexMappedData);
-	std::memcpy(vertexMappedData, vertices.data(), vertices.size() * sizeof(Vertex));
-	vmaUnmapMemory(allocator, vertexBuffer.allocation);
+	{
+		VkCommandBuffer cmd = BeginSingleTimeCommands(context.GetDevice(), transientCmdPool);
 
-	indexBuffer = allocator.CreateBuffer(indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_2_INDEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU).value();
-	void* indexMappedData;
-	vmaMapMemory(allocator, indexBuffer.allocation, &indexMappedData);
-	std::memcpy(indexMappedData, indices.data(), indices.size() * sizeof(uint32_t));
-	vmaUnmapMemory(allocator, indexBuffer.allocation);
+		vertexBuffer = allocator.CreateBuffer(vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_2_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU).value();
+		void* vertexMappedData;
+		vmaMapMemory(allocator, vertexBuffer.allocation, &vertexMappedData);
+		std::memcpy(vertexMappedData, vertices.data(), vertices.size() * sizeof(Vertex));
+		vmaUnmapMemory(allocator, vertexBuffer.allocation);
+
+		indexBuffer = allocator.CreateBuffer(indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_2_INDEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU).value();
+		void* indexMappedData;
+		vmaMapMemory(allocator, indexBuffer.allocation, &indexMappedData);
+		std::memcpy(indexMappedData, indices.data(), indices.size() * sizeof(uint32_t));
+		vmaUnmapMemory(allocator, indexBuffer.allocation);
+
+		EndSingleTimeCommands(cmd, context.GetDevice(), transientCmdPool, context.GetGraphicsQueue().queue);
+	}
+	allocator.FreeStagingBuffers();  // Data is uploaded, staging buffers can be released
 
 	return true;
 }
@@ -294,25 +455,25 @@ void gpu::Close()
 {
 	if (context.GetDevice()) vkDeviceWaitIdle(context.GetDevice());
 
+	vkDestroyShaderEXT(context.GetDevice(), shaders[0], nullptr);
+	vkDestroyShaderEXT(context.GetDevice(), shaders[1], nullptr);
+
+	swapchain.Close();
+	vkDestroyCommandPool(context.GetDevice(), transientCmdPool, nullptr);
+
+	// Frame info
+	for (size_t i = 0; i < frameData.size(); i++)
+	{
+		vkFreeCommandBuffers(context.GetDevice(), frameData[i].cmdPool, 1, &frameData[i].cmdBuffer);
+		vkDestroyCommandPool(context.GetDevice(), frameData[i].cmdPool, nullptr);
+	}
+	vkDestroySemaphore(context.GetDevice(), frameTimelineSemaphore, nullptr);
+
+	vkDestroySurfaceKHR(context.GetInstance(), surface, nullptr);
+
 	allocator.DestroyBuffer(vertexBuffer);
 	allocator.DestroyBuffer(indexBuffer);
 	allocator.Close();
-
-	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-		vkDestroySemaphore(context.GetDevice(), semImageAvailable[i], nullptr);
-		vkDestroyFence(context.GetDevice(), inFlightFences[i], nullptr);
-	}
-	for (auto sem : semRenderFinished) {
-		vkDestroySemaphore(context.GetDevice(), sem, nullptr);
-	}
-
-	vkDestroyShaderEXT(context.GetDevice(), shaders[0], nullptr);
-	vkDestroyShaderEXT(context.GetDevice(), shaders[1], nullptr);
-	vkDestroyCommandPool(context.GetDevice(), cmdPool, nullptr);
-	for (auto view : swapchainImageViews) vkDestroyImageView(context.GetDevice(), view, nullptr);
-	vkDestroySwapchainKHR(context.GetDevice(), swapchain, nullptr);
-
-	vkDestroySurfaceKHR(context.GetInstance(), surface, nullptr);
 	context.Close();
 }
 //=============================================================================
@@ -321,140 +482,70 @@ bool gpu::BeginFrame()
 	if (window::GetWindowMinimized())
 		return false;
 
-	if (windowSize.width != window::GetWidth() || windowSize.height != window::GetHeight())
-	{
-		windowSize.width = window::GetWidth();
-		windowSize.height = window::GetHeight();
-	}
+	//if (windowSize.width != window::GetWidth() || windowSize.height != window::GetHeight())
+	//{
+	//	windowSize.width = window::GetWidth();
+	//	windowSize.height = window::GetHeight();
+	//}
+	if (!prepareFrameResources()) return false;
 
-	vkWaitForFences(context.GetDevice(), 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
-	vkResetFences(context.GetDevice(), 1, &inFlightFences[currentFrame]);
-
-	VkResult result = vkAcquireNextImageKHR(context.GetDevice(), swapchain, UINT64_MAX, semImageAvailable[currentFrame], VK_NULL_HANDLE, &imageIndex);
-	if (result == VK_ERROR_OUT_OF_DATE_KHR)
-	{
-		// Swapchain устарел, пересоздаем и пропускаем текущий кадр
-		createSwapchain(swapchain);
-		return false; // Пропустить кадр
-	}
-	else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
-	{
-		// Неожиданная ошибка
-		core::Fatal("swapchain failed");
-		return false;
-	}
-
-	// Готовим командный буфер
-	VkCommandBuffer cmd = cmdBuffers[currentFrame];
-	vkResetCommandBuffer(cmd, 0);
-
-	VkCommandBufferBeginInfo beginInfo = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-	vkBeginCommandBuffer(cmd, &beginInfo);
+	// Begin command buffer recording
+	mainCommandBuffer = beginCommandRecording();
 
 	return true;
 }
 //=============================================================================
-void Draw()
-{
-	VkCommandBuffer cmd = cmdBuffers[currentFrame];
-
-	// Barrier: UNDEFINED -> COLOR_ATTACHMENT_OPTIMAL ---
-	// VkImageMemoryBarrier2 объединяет всё в одну структуру
-	VkImageMemoryBarrier2 barrier1 = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-		.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,      // Stage теперь в структуре
-		.srcAccessMask = 0,                                       // Stage теперь в структуре
-		.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, // Stage теперь в структуре
-		.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,  // Access теперь в структуре
-		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-		.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		.image = swapchainImages[imageIndex],
-		.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 }
-	};
-	// VkDependencyInfo собирает все барьеры для одного вызова
-	VkDependencyInfo depInfo1 = {
-		.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-		.imageMemoryBarrierCount = 1,
-		.pImageMemoryBarriers = &barrier1
-	};
-	vkCmdPipelineBarrier2(cmd, &depInfo1);
-
-	// Dynamic Rendering
-	VkRenderingAttachmentInfo colorAttachment = {
-		.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO, .imageView = swapchainImageViews[imageIndex],
-		.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-		.storeOp = VK_ATTACHMENT_STORE_OP_STORE, .clearValue = {.color = {0.1f, 0.1f, 0.1f, 1.0f} }
-	};
-	VkRenderingInfo renderingInfo = {
-		.sType = VK_STRUCTURE_TYPE_RENDERING_INFO, .renderArea = { {0, 0}, swapchainExtent },
-		.layerCount = 1, .colorAttachmentCount = 1, .pColorAttachments = &colorAttachment
-	};
-	vkCmdBeginRendering(cmd, &renderingInfo);
-
-	VkViewport viewport = { 0, 0, (float)swapchainExtent.width, (float)swapchainExtent.height, 0, 1 };
-	VkRect2D scissor = { {0, 0}, swapchainExtent };
-	setGraphicsDynamicState(cmd, viewport, scissor);
-
-	// Bind Shaders & Draw
-	cmdBindGraphicsShaders(cmd, shaders[0], shaders[1]);
-
-	VkDeviceSize offsets[] = { 0 }; // Смещение для вершинного буфера
-	vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer.buffer, offsets); // Привязываем вершинный буфер
-
-	vkCmdBindIndexBuffer(cmd, indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32); // Привязываем индексный буфер
-
-	vkCmdDrawIndexed(cmd, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
-
-	vkCmdEndRendering(cmd);
-
-	// Barrier: COLOR_ATTACHMENT_OPTIMAL -> PRESENT_SRC_KHR ---
-	VkImageMemoryBarrier2 barrier2 = barrier1; // Копируем первую, меняем нужное
-	barrier2.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-	barrier2.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-	barrier2.dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT; // Обычно хватает bottom-of-pipe
-	barrier2.dstAccessMask = 0; // Никакой доступ не требуется
-	barrier2.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	barrier2.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-	VkDependencyInfo depInfo2 = {
-		.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-		.imageMemoryBarrierCount = 1,
-		.pImageMemoryBarriers = &barrier2
-	};
-
-	vkCmdPipelineBarrier2(cmd, &depInfo2);
-
-	vkEndCommandBuffer(cmd);
-}
-//=============================================================================
 void gpu::EndFrame()
 {
-	Draw();
+	// draw
+	{
+		// Transition the swapchain image to general layout for use as a render target in dynamic rendering
+		cmdTransitionSwapchainLayout(mainCommandBuffer, swapchain.GetImage(), VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_GENERAL);
 
-	// Submit
-	VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	VkSubmitInfo submitInfo = {
-		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .waitSemaphoreCount = 1,
-		.pWaitSemaphores = &semImageAvailable[currentFrame],
-		.pWaitDstStageMask = &waitStage,
-		.commandBufferCount = 1, .pCommandBuffers = &cmdBuffers[currentFrame],
-		.signalSemaphoreCount = 1,
-		.pSignalSemaphores = &semRenderFinished[imageIndex]
-	};
-	vkQueueSubmit(context.GetGraphicsQueue().queue, 1, &submitInfo, inFlightFences[currentFrame]);
+		// Dynamic Rendering
+		// Image to render to
+		const std::array<VkRenderingAttachmentInfo, 1> colorAttachment{ {{
+			.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+			.imageView = swapchain.GetImageView(),
+			.imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+			.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,   // Clear the image (see clearValue)
+			.storeOp = VK_ATTACHMENT_STORE_OP_STORE,  // Store the image (keep the image)
+			.clearValue = {{{0.1f, 0.1f, 0.1f, 1.0f}}},
+		}} };
 
-	// Present
-	VkPresentInfoKHR presentInfo = {
-		.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR, .waitSemaphoreCount = 1,
-		.pWaitSemaphores = &semRenderFinished[imageIndex],
-		.swapchainCount = 1, .pSwapchains = &swapchain, .pImageIndices = &imageIndex
-	};
+		// Details of the dynamic rendering
+		const VkRenderingInfo renderingInfo{
+			.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+			.renderArea = {{0, 0}, windowSize},
+			.layerCount = 1,
+			.colorAttachmentCount = uint32_t(colorAttachment.size()),
+			.pColorAttachments = colorAttachment.data(),
+		};
 
-	VkResult presentRes = vkQueuePresentKHR(context.GetGraphicsQueue().queue, &presentInfo);
-	if (presentRes == VK_ERROR_OUT_OF_DATE_KHR || presentRes == VK_SUBOPTIMAL_KHR) {
-		createSwapchain(swapchain);
+		vkCmdBeginRendering(mainCommandBuffer, &renderingInfo);
+
+		VkViewport viewport = { 0, 0, (float)windowSize.width, (float)windowSize.height, 0, 1 };
+		VkRect2D scissor = { {0, 0}, windowSize };
+		setGraphicsDynamicState(mainCommandBuffer, viewport, scissor);
+
+		// Bind Shaders & Draw
+		cmdBindGraphicsShaders(mainCommandBuffer, shaders[0], shaders[1]);
+
+		VkDeviceSize offsets[] = { 0 }; // Смещение для вершинного буфера
+		vkCmdBindVertexBuffers(mainCommandBuffer, 0, 1, &vertexBuffer.buffer, offsets);
+		vkCmdBindIndexBuffer(mainCommandBuffer, indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+
+		vkCmdDrawIndexed(mainCommandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+
+		vkCmdEndRendering(mainCommandBuffer);
+
+		// Transition the swapchain image back to the present layout
+		cmdTransitionSwapchainLayout(mainCommandBuffer, swapchain.GetImage(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 	}
 
-	currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+	// Ends recording of commands for the frame
+	endCommandRecording(mainCommandBuffer);
+	// End frame and present
+	endFrame(mainCommandBuffer);
 }
 //=============================================================================

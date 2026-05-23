@@ -125,6 +125,7 @@
     <ClInclude Include="_vk_debugUtils.h" />
     <ClInclude Include="_vk_resurces.h" />
     <ClInclude Include="_vk_samplerPool.h" />
+    <ClInclude Include="_vk_swapchain.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="app.cpp" />
@@ -149,6 +150,7 @@
     <ClCompile Include="_vk_core.cpp" />
     <ClCompile Include="_vk_resurces.cpp" />
     <ClCompile Include="_vk_samplerPool.cpp" />
+    <ClCompile Include="_vk_swapchain.cpp" />
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="shaders\shader.frag.glsl">
