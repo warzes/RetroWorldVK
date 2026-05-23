@@ -18,3 +18,4 @@ Thumbs.db
 
 /bin/imgui.ini
 /_line
+/src/Engine/shaders/_autogen

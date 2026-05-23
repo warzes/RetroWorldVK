@@ -104,6 +104,7 @@
     <ClInclude Include="core_file.h" />
     <ClInclude Include="core_log.h" />
     <ClInclude Include="core_string.h" />
+    <ClInclude Include="core_utils.h" />
     <ClInclude Include="gpu_core.h" />
     <ClInclude Include="gpu_system.h" />
     <ClInclude Include="math_core.h" />
@@ -114,9 +115,14 @@
     <ClInclude Include="math_vec2.h" />
     <ClInclude Include="math_vec3.h" />
     <ClInclude Include="math_vec4.h" />
+    <ClInclude Include="shaders\_autogen\shader.frag.glsl.h" />
+    <ClInclude Include="shaders\_autogen\shader.vert.glsl.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="_app_input.h" />
     <ClInclude Include="_app_window.h" />
+    <ClInclude Include="_vk_context.h" />
+    <ClInclude Include="_vk_core.h" />
+    <ClInclude Include="_vk_debugUtils.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="app.cpp" />
@@ -125,6 +131,7 @@
     <ClCompile Include="core_file.cpp" />
     <ClCompile Include="core_log.cpp" />
     <ClCompile Include="core_string.cpp" />
+    <ClCompile Include="core_utils.cpp" />
     <ClCompile Include="gpu_core.cpp" />
     <ClCompile Include="gpu_system.cpp" />
     <ClCompile Include="mathTest.cpp" />
@@ -132,6 +139,82 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="_vk_context.cpp" />
+    <ClCompile Include="_vk_core.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="shaders\shader.frag.glsl">
+      <FileType>Document</FileType>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+echo $(VULKAN_SDK)/Bin/glslangValidator.exe -g -D__GLSL__ --target-env vulkan1.3 --vn shader_frag_glsl -o $(ProjectDir)/shaders/_autogen/shader.frag.glsl.h $(ProjectDir)/shaders/shader.frag.glsl -I$(ProjectDir)/shaders
+if %errorlevel% neq 0 goto :cmEnd
+$(VULKAN_SDK)\Bin\glslangValidator.exe -g -D__GLSL__ --target-env vulkan1.3 --vn shader_frag_glsl -o $(ProjectDir)/shaders/_autogen/shader.frag.glsl.h $(ProjectDir)/shaders/shader.frag.glsl -I$(ProjectDir)/shaders
+if %errorlevel% neq 0 goto :cmEnd
+$(VULKAN_SDK)\Bin\glslangValidator.exe -g -D__GLSL__ --target-env vulkan1.3 -o $(ProjectDir)/shaders/_autogen/shader.frag.glsl.spv $(ProjectDir)/shaders/shader.frag.glsl -I$(ProjectDir)/shaders
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">gen fs shader</Message>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(ProjectDir)/shaders/_autogen\shader.frag.glsl.h;$(ProjectDir)/shaders/_autogen\shader.frag.glsl.spv;%(Outputs)</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+echo $(VULKAN_SDK)/Bin/glslangValidator.exe -g -D__GLSL__ --target-env vulkan1.3 --vn shader_frag_glsl -o $(ProjectDir)/shaders/_autogen/shader.frag.glsl.h $(ProjectDir)/shaders/shader.frag.glsl -I$(ProjectDir)/shaders
+if %errorlevel% neq 0 goto :cmEnd
+$(VULKAN_SDK)\Bin\glslangValidator.exe -g -D__GLSL__ --target-env vulkan1.3 --vn shader_frag_glsl -o $(ProjectDir)/shaders/_autogen/shader.frag.glsl.h $(ProjectDir)/shaders/shader.frag.glsl -I$(ProjectDir)/shaders
+if %errorlevel% neq 0 goto :cmEnd
+$(VULKAN_SDK)\Bin\glslangValidator.exe -g -D__GLSL__ --target-env vulkan1.3 -o $(ProjectDir)/shaders/_autogen/shader.frag.glsl.spv $(ProjectDir)/shaders/shader.frag.glsl -I$(ProjectDir)/shaders
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">gen fs shader</Message>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(ProjectDir)/shaders/_autogen\shader.frag.glsl.h;$(ProjectDir)/shaders/_autogen\shader.frag.glsl.spv;%(Outputs)</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+    </CustomBuild>
+    <CustomBuild Include="shaders\shader.vert.glsl">
+      <FileType>Document</FileType>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+echo $(VULKAN_SDK)/Bin/glslangValidator.exe -g -D__GLSL__ --target-env vulkan1.3 --vn shader_vert_glsl -o $(ProjectDir)/shaders/_autogen/shader.vert.glsl.h $(ProjectDir)/shaders/shader.vert.glsl -I$(ProjectDir)/shaders
+if %errorlevel% neq 0 goto :cmEnd
+ $(VULKAN_SDK)\Bin\glslangValidator.exe -g -D__GLSL__ --target-env vulkan1.3 --vn shader_vert_glsl -o $(ProjectDir)/shaders/_autogen/shader.vert.glsl.h $(ProjectDir)/shaders/shader.vert.glsl -I$(ProjectDir)/shaders
+if %errorlevel% neq 0 goto :cmEnd
+ $(VULKAN_SDK)\Bin\glslangValidator.exe -g -D__GLSL__ --target-env vulkan1.3 -o $(ProjectDir)/shaders/_autogen/shader.vert.glsl.spv $(ProjectDir)/shaders/shader.vert.glsl -I$(ProjectDir)/shaders
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">gen vs shader</Message>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(ProjectDir)/shaders/_autogen\shader.vert.glsl.h;$(ProjectDir)/shaders/_autogen\shader.vert.glsl.spv;%(Outputs)</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+echo $(VULKAN_SDK)/Bin/glslangValidator.exe -g -D__GLSL__ --target-env vulkan1.3 --vn shader_vert_glsl -o $(ProjectDir)/shaders/_autogen/shader.vert.glsl.h $(ProjectDir)/shaders/shader.vert.glsl -I$(ProjectDir)/shaders
+if %errorlevel% neq 0 goto :cmEnd
+ $(VULKAN_SDK)\Bin\glslangValidator.exe -g -D__GLSL__ --target-env vulkan1.3 --vn shader_vert_glsl -o $(ProjectDir)/shaders/_autogen/shader.vert.glsl.h $(ProjectDir)/shaders/shader.vert.glsl -I$(ProjectDir)/shaders
+if %errorlevel% neq 0 goto :cmEnd
+ $(VULKAN_SDK)\Bin\glslangValidator.exe -g -D__GLSL__ --target-env vulkan1.3 -o $(ProjectDir)/shaders/_autogen/shader.vert.glsl.spv $(ProjectDir)/shaders/shader.vert.glsl -I$(ProjectDir)/shaders
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">gen vs shader</Message>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(ProjectDir)/shaders/_autogen\shader.vert.glsl.h;$(ProjectDir)/shaders/_autogen\shader.vert.glsl.spv;%(Outputs)</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+    </CustomBuild>
+    <None Include="shaders\_autogen\shader.frag.glsl.spv" />
+    <None Include="shaders\_autogen\shader.vert.glsl.spv" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

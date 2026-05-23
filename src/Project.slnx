@@ -4,6 +4,7 @@
   </Configurations>
   <Folder Name="/DOC/">
     <File Path="3rdparty.md" />
+    <File Path="modernVK.md" />
     <File Path="other.md" />
     <File Path="vulkan.md" />
   </Folder>

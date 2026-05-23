@@ -62,6 +62,24 @@
     <ClInclude Include="core_string.h">
       <Filter>core</Filter>
     </ClInclude>
+    <ClInclude Include="core_utils.h">
+      <Filter>core</Filter>
+    </ClInclude>
+    <ClInclude Include="_vk_core.h">
+      <Filter>gpu\private</Filter>
+    </ClInclude>
+    <ClInclude Include="_vk_context.h">
+      <Filter>gpu\private</Filter>
+    </ClInclude>
+    <ClInclude Include="_vk_debugUtils.h">
+      <Filter>gpu\private</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\_autogen\shader.vert.glsl.h">
+      <Filter>gpu\shaders\_autogen</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\_autogen\shader.frag.glsl.h">
+      <Filter>gpu\shaders\_autogen</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp" />
@@ -92,6 +110,15 @@
     <ClCompile Include="core_string.cpp">
       <Filter>core</Filter>
     </ClCompile>
+    <ClCompile Include="core_utils.cpp">
+      <Filter>core</Filter>
+    </ClCompile>
+    <ClCompile Include="_vk_core.cpp">
+      <Filter>gpu\private</Filter>
+    </ClCompile>
+    <ClCompile Include="_vk_context.cpp">
+      <Filter>gpu\private</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="core">
@@ -115,5 +142,27 @@
     <Filter Include="app\private">
       <UniqueIdentifier>{f80efeee-f6f2-40ad-bc25-da603dfa9d26}</UniqueIdentifier>
     </Filter>
+    <Filter Include="gpu\shaders">
+      <UniqueIdentifier>{4dd6a5bf-6e25-4195-b784-1d8d1c5f8865}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="gpu\shaders\_autogen">
+      <UniqueIdentifier>{86c5aaba-deae-4f02-abfc-d660f21ab1b9}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="shaders\_autogen\shader.vert.glsl.spv">
+      <Filter>gpu\shaders\_autogen</Filter>
+    </None>
+    <None Include="shaders\_autogen\shader.frag.glsl.spv">
+      <Filter>gpu\shaders\_autogen</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="shaders\shader.vert.glsl">
+      <Filter>gpu\shaders</Filter>
+    </CustomBuild>
+    <CustomBuild Include="shaders\shader.frag.glsl">
+      <Filter>gpu\shaders</Filter>
+    </CustomBuild>
   </ItemGroup>
 </Project>

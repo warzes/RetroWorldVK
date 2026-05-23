@@ -1,4 +1,12 @@
-﻿https://github.com/KhronosGroup/Vulkan-Samples/tree/main/samples/extensions/shader_object
+﻿
+
+
+
+
+
+
+
+https://github.com/KhronosGroup/Vulkan-Samples/tree/main/samples/extensions/shader_object
 создание шейдеров без пайплана
 
 https://amini-allight.org/post/vknew-modern-vulkan-with-descriptor-indexing-dynamic-rendering-and-shader-objects
