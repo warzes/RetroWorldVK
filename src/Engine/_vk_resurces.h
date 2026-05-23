@@ -95,6 +95,17 @@ public:
 	* working around. Production engines should configure a VmaPool with a
 	* larger blockSize to sub-allocate small resources together.
 	-*/
+	//vertexBuffer = allocator.CreateBuffer(vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_2_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	//void* vertexMappedData;
+	//vmaMapMemory(allocator, vertexBuffer.allocation, &vertexMappedData);
+	//std::memcpy(vertexMappedData, vertices.data(), vertices.size() * sizeof(Vertex));
+	//vmaUnmapMemory(allocator, vertexBuffer.allocation);
+
+	//indexBuffer = allocator.CreateBuffer(indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_2_INDEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	//void* indexMappedData;
+	//vmaMapMemory(allocator, indexBuffer.allocation, &indexMappedData);
+	//std::memcpy(indexMappedData, indices.data(), indices.size() * sizeof(uint32_t));
+	//vmaUnmapMemory(allocator, indexBuffer.allocation);
 	std::optional<Buffer> CreateBuffer(
 		VkDeviceSize             size,
 		VkBufferUsageFlags2      usage,
@@ -110,21 +121,22 @@ public:
 	* automatically.
 	-*/
 	template <typename T>
-	Buffer CreateStagingBuffer(const std::span<T>& vectorData)
+	std::optional<Buffer> CreateStagingBuffer(const std::span<T>& vectorData)
 	{
 		const VkDeviceSize bufferSize = sizeof(T) * vectorData.size();
 
 		// Create a staging buffer (host-visible, CPU-writes-then-GPU-reads).
-		Buffer stagingBuffer = CreateBuffer(bufferSize, VK_BUFFER_USAGE_2_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+		std::optional<Buffer> stagingBuffer = CreateBuffer(bufferSize, VK_BUFFER_USAGE_2_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+		if (!stagingBuffer.has_value()) return std::nullopt;
 
 		// Track the staging buffer for later cleanup
-		m_stagingBuffers.push_back(stagingBuffer);
+		m_stagingBuffers.push_back(stagingBuffer.value());
 
 		// Map and copy data to the staging buffer
 		void* data = nullptr;
-		vmaMapMemory(m_allocator, stagingBuffer.allocation, &data);
+		vmaMapMemory(m_allocator, stagingBuffer.value().allocation, &data);
 		memcpy(data, vectorData.data(), (size_t)bufferSize);
-		vmaUnmapMemory(m_allocator, stagingBuffer.allocation);
+		vmaUnmapMemory(m_allocator, stagingBuffer.value().allocation);
 		return stagingBuffer;
 	}
 
@@ -137,7 +149,7 @@ public:
 	* the staging buffer can be cleared using the freeStagingBuffers function.
 	-*/
 	template <typename T>
-	Buffer CreateBufferAndUploadData(
+	std::optional<Buffer> CreateBufferAndUploadData(
 		VkCommandBuffer          cmd,
 		const std::span<T>&      vectorData,
 		VkBufferUsageFlags2      usageFlags,
@@ -145,14 +157,16 @@ public:
 		VkDeviceSize             minAlignment = {})
 	{
 		// Create staging buffer and upload data
-		Buffer stagingBuffer = CreateStagingBuffer(vectorData);
+		std::optional<Buffer> stagingBuffer = CreateStagingBuffer(vectorData);
+		if (!stagingBuffer.has_value()) return std::nullopt;
 
 		// Create the final buffer in GPU memory
-		const VkDeviceSize bufferSize = sizeof(T) * vectorData.size();
-		Buffer             buffer = CreateBuffer(bufferSize, usageFlags | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, flags, minAlignment);
+		const VkDeviceSize    bufferSize = sizeof(T) * vectorData.size();
+		std::optional<Buffer> buffer = CreateBuffer(bufferSize, usageFlags | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, flags, minAlignment);
+		if (!buffer.has_value()) return std::nullopt;
 
 		const std::array<VkBufferCopy, 1> copyRegion{ {{.size = bufferSize}} };
-		vkCmdCopyBuffer(cmd, stagingBuffer.buffer, buffer.buffer, uint32_t(copyRegion.size()), copyRegion.data());
+		vkCmdCopyBuffer(cmd, stagingBuffer.value().buffer, buffer.value().buffer, uint32_t(copyRegion.size()), copyRegion.data());
 
 		return buffer;
 	}

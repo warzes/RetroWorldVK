@@ -432,17 +432,13 @@ bool gpu::Init(const CreateInfo& createInfo)
 	{
 		VkCommandBuffer cmd = BeginSingleTimeCommands(context.GetDevice(), transientCmdPool);
 
-		vertexBuffer = allocator.CreateBuffer(vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_2_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU).value();
-		void* vertexMappedData;
-		vmaMapMemory(allocator, vertexBuffer.allocation, &vertexMappedData);
-		std::memcpy(vertexMappedData, vertices.data(), vertices.size() * sizeof(Vertex));
-		vmaUnmapMemory(allocator, vertexBuffer.allocation);
+		vertexBuffer = allocator.CreateBufferAndUploadData(cmd, std::span<Vertex>(vertices),
+			VK_BUFFER_USAGE_2_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT).value();
+		//DBG_VK_NAME(m_vertexBuffer.buffer);
 
-		indexBuffer = allocator.CreateBuffer(indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_2_INDEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU).value();
-		void* indexMappedData;
-		vmaMapMemory(allocator, indexBuffer.allocation, &indexMappedData);
-		std::memcpy(indexMappedData, indices.data(), indices.size() * sizeof(uint32_t));
-		vmaUnmapMemory(allocator, indexBuffer.allocation);
+		indexBuffer = allocator.CreateBufferAndUploadData(cmd, std::span<uint32_t>(indices),
+			VK_BUFFER_USAGE_2_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT).value();
+		//DBG_VK_NAME(m_vertexBuffer.buffer);
 
 		EndSingleTimeCommands(cmd, context.GetDevice(), transientCmdPool, context.GetGraphicsQueue().queue);
 	}
