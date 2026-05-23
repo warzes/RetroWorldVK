@@ -37,16 +37,8 @@ namespace
 	VkShaderEXT shaders[2];
 
 	struct Vertex { float x, y, r, g, b; };
-	VkBuffer vertexBuffer, indexBuffer;
-	VmaAllocation vertexBufferAllocation, indexBufferAllocation;
-
-	std::vector<Vertex> vertices = {
-	{ -0.5f,  0.5f,  1.0f, 0.0f, 0.0f }, // Top-left     (Red)
-	{  0.5f,  0.5f,  0.0f, 1.0f, 0.0f }, // Top-right    (Green)
-	{  0.5f, -0.5f,  0.0f, 0.0f, 1.0f }, // Bottom-right (Blue)
-	{ -0.5f, -0.5f,  1.0f, 1.0f, 1.0f }  // Bottom-left  (White)
-	};
-	std::vector<uint32_t> indices = { 0, 1, 2, 2, 3, 0 };
+	VkBuffer vertexBuffer;
+	VmaAllocation vboAlloc;
 
 	uint32_t currentFrame = 0;
 }
@@ -294,30 +286,22 @@ bool gpu::Init(const CreateInfo& createInfo)
 	createGraphicsShaders();
 
 	// 15. VkBuffer (VMA)
-
-	VkBufferCreateInfo vertexBufferInfo = {
-	   .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = vertices.size() * sizeof(Vertex),
-	   .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+	Vertex verts[] = {
+		{ 0.0f, -0.5f,  1.0f, 0.0f, 0.0f },
+		{ 0.5f,  0.5f,  0.0f, 1.0f, 0.0f },
+		{-0.5f,  0.5f,  0.0f, 0.0f, 1.0f }
 	};
-	VmaAllocationCreateInfo vertexAllocInfo = { .usage = VMA_MEMORY_USAGE_CPU_TO_GPU };
-	vmaCreateBuffer(allocator, &vertexBufferInfo, &vertexAllocInfo, &vertexBuffer, &vertexBufferAllocation, nullptr);
-
-	void* vertexMappedData;
-	vmaMapMemory(allocator, vertexBufferAllocation, &vertexMappedData);
-	std::memcpy(vertexMappedData, vertices.data(), vertices.size() * sizeof(Vertex));
-	vmaUnmapMemory(allocator, vertexBufferAllocation);
-
-	VkBufferCreateInfo indexBufferInfo = {
-	   .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = indices.size() * sizeof(uint32_t),
-	   .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT, .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+	VkBufferCreateInfo bufInfo = {
+		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = sizeof(verts),
+		.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, .sharingMode = VK_SHARING_MODE_EXCLUSIVE
 	};
-	VmaAllocationCreateInfo indexAllocInfo = { .usage = VMA_MEMORY_USAGE_CPU_TO_GPU };
-	vmaCreateBuffer(allocator, &indexBufferInfo, &indexAllocInfo, &indexBuffer, &indexBufferAllocation, nullptr);
+	VmaAllocationCreateInfo allocInfo = { .usage = VMA_MEMORY_USAGE_CPU_TO_GPU };
+	vmaCreateBuffer(allocator, &bufInfo, &allocInfo, &vertexBuffer, &vboAlloc, nullptr);
 
-	void* indexMappedData;
-	vmaMapMemory(allocator, indexBufferAllocation, &indexMappedData);
-	std::memcpy(indexMappedData, indices.data(), indices.size() * sizeof(uint32_t));
-	vmaUnmapMemory(allocator, indexBufferAllocation);
+	void* mapped;
+	vmaMapMemory(allocator, vboAlloc, &mapped);
+	std::memcpy(mapped, verts, sizeof(verts));
+	vmaUnmapMemory(allocator, vboAlloc);
 
 	return true;
 }
@@ -326,8 +310,7 @@ void gpu::Close()
 {
 	if (context.GetDevice()) vkDeviceWaitIdle(context.GetDevice());
 
-	vmaDestroyBuffer(allocator, vertexBuffer, vertexBufferAllocation);
-	vmaDestroyBuffer(allocator, indexBuffer, indexBufferAllocation);
+	vmaDestroyBuffer(allocator, vertexBuffer, vboAlloc);
 	vmaDestroyAllocator(allocator);
 
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
@@ -438,12 +421,9 @@ void Draw()
 	const std::array<VkShaderEXT, 5> inshaders = { shaders[0], VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, shaders[1] };
 	vkCmdBindShadersEXT(cmd, uint32_t(stages.size()), stages.data(), inshaders.data());
 
-	VkDeviceSize offsets[] = { 0 }; // Смещение для вершинного буфера
-	vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, offsets); // Привязываем вершинный буфер
-
-	vkCmdBindIndexBuffer(cmd, indexBuffer, 0, VK_INDEX_TYPE_UINT32); // Привязываем индексный буфер
-
-	vkCmdDrawIndexed(cmd, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+	VkDeviceSize offset = 0;
+	vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
+	vkCmdDraw(cmd, 3, 1, 0, 0);
 
 	vkCmdEndRendering(cmd);
 
