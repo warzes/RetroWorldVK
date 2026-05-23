@@ -32,6 +32,8 @@ namespace
 	std::vector<VkSemaphore> semRenderFinished;
 	VkSemaphoreCreateInfo semInfo = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 
+	uint32_t imageIndex;
+
 	VkShaderEXT shaders[2];
 
 	struct Vertex { float x, y, r, g, b; };
@@ -47,8 +49,6 @@ void createRenderFinishedSemaphores()
 		vkDestroySemaphore(context.GetDevice(), semRenderFinished[i], nullptr);
 		semRenderFinished[i] = nullptr;
 	}
-
-
 
 	semRenderFinished.resize(swapchainImages.size());
 	for (size_t i = 0; i < swapchainImages.size(); i++) {
@@ -209,7 +209,6 @@ void createGraphicsShaders()
 		.pushConstantRangeCount = 0,
 		.pPushConstantRanges = nullptr,
 		.pSpecializationInfo = nullptr,
-
 	};
 
 	vkCreateShadersEXT(context.GetDevice(), 1, &vertCreateInfo, nullptr, &shaders[0]);
@@ -284,9 +283,6 @@ bool gpu::Init(const CreateInfo& createInfo)
 	};
 	vkAllocateCommandBuffers(context.GetDevice(), &cmdAllocInfo, cmdBuffers);
 
-	
-
-	// 14. VkShaderEXT
 	createGraphicsShaders();
 	
 	// 15. VkBuffer (VMA)
@@ -314,7 +310,6 @@ void gpu::Close()
 {
 	if (context.GetDevice()) vkDeviceWaitIdle(context.GetDevice());
 
-	// Cleanup (кратко, так как ОС освободит ресурсы, но для порядка)
 	vmaDestroyBuffer(allocator, vertexBuffer, vboAlloc);
 	vmaDestroyAllocator(allocator);
 
@@ -336,43 +331,68 @@ void gpu::Close()
 	context.Close();
 }
 //=============================================================================
-void gpu::BeginFrame()
+bool gpu::BeginFrame()
 {
+	if (window::GetWindowMinimized())
+		return false;
+
 	if (windowSize.width != window::GetWidth() || windowSize.height != window::GetHeight())
 	{
 		windowSize.width = window::GetWidth();
 		windowSize.height = window::GetHeight();
 	}
-}
-//=============================================================================
-void gpu::EndFrame()
-{
-	vkWaitForFences(context.GetDevice(), 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
-	uint32_t imageIndex;
-	VkResult acquireRes = vkAcquireNextImageKHR(context.GetDevice(), swapchain, UINT64_MAX, semImageAvailable[currentFrame], VK_NULL_HANDLE, &imageIndex);
-	if (acquireRes == VK_ERROR_OUT_OF_DATE_KHR) {
+	vkWaitForFences(context.GetDevice(), 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
+	vkResetFences(context.GetDevice(), 1, &inFlightFences[currentFrame]);
+
+	VkResult result = vkAcquireNextImageKHR(context.GetDevice(), swapchain, UINT64_MAX, semImageAvailable[currentFrame], VK_NULL_HANDLE, &imageIndex);
+	if (result == VK_ERROR_OUT_OF_DATE_KHR)
+	{
+		// Swapchain устарел, пересоздаем и пропускаем текущий кадр
 		createSwapchain(swapchain);
-		return;
+		return false; // Пропустить кадр
+	}
+	else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+	{
+		// Неожиданная ошибка
+		core::Fatal("swapchain failed");
+		return false;
 	}
 
-	vkResetFences(context.GetDevice(), 1, &inFlightFences[currentFrame]);
-	
+	// Готовим командный буфер
 	VkCommandBuffer cmd = cmdBuffers[currentFrame];
 	vkResetCommandBuffer(cmd, 0);
 
 	VkCommandBufferBeginInfo beginInfo = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 	vkBeginCommandBuffer(cmd, &beginInfo);
 
-	// Barrier: UNDEFINED -> COLOR_ATTACHMENT_OPTIMAL
-	VkImageMemoryBarrier barrier1 = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED, .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+	return true;
+}
+//=============================================================================
+void Draw()
+{
+	VkCommandBuffer cmd = cmdBuffers[currentFrame];
+
+	// --- СТАЛО: Barrier: UNDEFINED -> COLOR_ATTACHMENT_OPTIMAL ---
+	// VkImageMemoryBarrier2 объединяет всё в одну структуру
+	VkImageMemoryBarrier2 barrier1 = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+		.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,      // Stage теперь в структуре
+		.srcAccessMask = 0,                                       // Stage теперь в структуре
+		.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, // Stage теперь в структуре
+		.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,  // Access теперь в структуре
+		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 		.image = swapchainImages[imageIndex],
 		.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 }
 	};
-	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier1);
+	// VkDependencyInfo собирает все барьеры для одного вызова
+	VkDependencyInfo depInfo1 = {
+		.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+		.imageMemoryBarrierCount = 1,
+		.pImageMemoryBarriers = &barrier1
+	};
+	vkCmdPipelineBarrier2(cmd, &depInfo1);
 
 	// Dynamic Rendering
 	VkRenderingAttachmentInfo colorAttachment = {
@@ -407,33 +427,47 @@ void gpu::EndFrame()
 
 	vkCmdEndRendering(cmd);
 
-	// Barrier: COLOR_ATTACHMENT_OPTIMAL -> PRESENT_SRC_KHR
-	VkImageMemoryBarrier barrier2 = barrier1;
-	barrier2.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	barrier2.dstAccessMask = 0;
+	// --- СТАЛО: Barrier: COLOR_ATTACHMENT_OPTIMAL -> PRESENT_SRC_KHR ---
+	VkImageMemoryBarrier2 barrier2 = barrier1; // Копируем первую, меняем нужное
+	barrier2.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+	barrier2.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+	barrier2.dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT; // Обычно хватает bottom-of-pipe
+	barrier2.dstAccessMask = 0; // Никакой доступ не требуется
 	barrier2.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	barrier2.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier2);
+
+	VkDependencyInfo depInfo2 = {
+		.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+		.imageMemoryBarrierCount = 1,
+		.pImageMemoryBarriers = &barrier2
+	};
+
+	vkCmdPipelineBarrier2(cmd, &depInfo2);
 
 	vkEndCommandBuffer(cmd);
+}
+//=============================================================================
+void gpu::EndFrame()
+{
+	Draw();
 
 	// Submit
 	VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 	VkSubmitInfo submitInfo = {
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .waitSemaphoreCount = 1,
-		.pWaitSemaphores = &semImageAvailable[currentFrame], // Ждем доступность картинки
+		.pWaitSemaphores = &semImageAvailable[currentFrame],
 		.pWaitDstStageMask = &waitStage,
-		.commandBufferCount = 1, .pCommandBuffers = &cmd,
+		.commandBufferCount = 1, .pCommandBuffers = &cmdBuffers[currentFrame],
 		.signalSemaphoreCount = 1,
-		.pSignalSemaphores = &semRenderFinished[imageIndex] // <-- Сигналим семафор, привязанный к КАРТИНКЕ
+		.pSignalSemaphores = &semRenderFinished[imageIndex]
 	};
 	vkQueueSubmit(context.GetGraphicsQueue().queue, 1, &submitInfo, inFlightFences[currentFrame]);
 
 	// Present
 	VkPresentInfoKHR presentInfo = {
-	.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR, .waitSemaphoreCount = 1,
-	.pWaitSemaphores = &semRenderFinished[imageIndex], // <-- Ждем семафор, привязанный к КАРТИНКЕ
-	.swapchainCount = 1, .pSwapchains = &swapchain, .pImageIndices = &imageIndex
+		.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR, .waitSemaphoreCount = 1,
+		.pWaitSemaphores = &semRenderFinished[imageIndex],
+		.swapchainCount = 1, .pSwapchains = &swapchain, .pImageIndices = &imageIndex
 	};
 
 	VkResult presentRes = vkQueuePresentKHR(context.GetGraphicsQueue().queue, &presentInfo);

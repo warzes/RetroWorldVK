@@ -25,6 +25,7 @@ namespace
 	bool      windowClose{ true };
 
 	bool      resizing{ false };
+	bool      windowMinimized{ false };
 
 	MSG       msg = {};
 }
@@ -51,6 +52,11 @@ uint16_t window::GetHeight() noexcept
 float window::GetWindowAspect() noexcept
 {
 	return windowAspect;
+}
+//=============================================================================
+bool window::GetWindowMinimized() noexcept
+{
+	return windowMinimized;
 }
 //=============================================================================
 // Main message handler for the sample.
@@ -83,6 +89,7 @@ static LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARA
 		}
 		return 0;
 	case WM_SIZE:
+		windowMinimized = (wParam == SIZE_MINIMIZED);
 		if ((wParam != SIZE_MINIMIZED))
 		{
 			if ((resizing) || ((wParam == SIZE_MAXIMIZED) || (wParam == SIZE_RESTORED)))
@@ -191,6 +198,7 @@ bool window::Init(const WindowCreateInfo& createInfo)
 {
 	resizing = false;
 	windowClose = false;
+	windowMinimized = false;
 
 	instance = GetModuleHandle(nullptr);
 

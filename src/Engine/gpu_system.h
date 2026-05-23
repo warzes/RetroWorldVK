@@ -14,6 +14,6 @@ namespace gpu
 	bool Init(const CreateInfo& createInfo);
 	void Close();
 
-	void BeginFrame();
+	bool BeginFrame();
 	void EndFrame();
 } // namespace gpu

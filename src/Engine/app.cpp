@@ -123,13 +123,14 @@ static void FixedUpdate(const app::AppCreateInfo& info)
 //=============================================================================
 static void Frame(const app::AppCreateInfo& info)
 {
-	gpu::BeginFrame();
+	if (gpu::BeginFrame())
+	{
+		if (info.render_cb) info.render_cb();
+		if (info.renderUi_cb) info.renderUi_cb();
 
-	if (info.render_cb) info.render_cb();
-	if (info.renderUi_cb) info.renderUi_cb();
-
-	//if (drawFPS) DrawFPS();
-	gpu::EndFrame();
+		//if (drawFPS) DrawFPS();
+		gpu::EndFrame();
+	}
 }
 //=============================================================================
 void app::Run(const app::AppCreateInfo& info)

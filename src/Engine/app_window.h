@@ -13,4 +13,5 @@ namespace window
 	uint16_t GetWidth() noexcept;
 	uint16_t GetHeight() noexcept;
 	float GetWindowAspect() noexcept;
+	bool GetWindowMinimized() noexcept;
 } // namespace app::window
