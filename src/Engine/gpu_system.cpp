@@ -263,11 +263,8 @@ bool gpu::Init(const CreateInfo& createInfo)
 	createSwapchain();
 
 	// 12. VkCommandPool + VkCommandBuffer[]
-	VkCommandPoolCreateInfo poolInfo = {
-		.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-		.queueFamilyIndex = context.GetGraphicsQueue().familyIndex
-	};
-	vkCreateCommandPool(context.GetDevice(), &poolInfo, nullptr, &cmdPool);
+	if (!CreateCommandPool(cmdPool, context.GetDevice(), context.GetGraphicsQueue().familyIndex, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT))
+		return false;
 
 	VkCommandBufferAllocateInfo cmdAllocInfo = {
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, .commandPool = cmdPool,
@@ -278,13 +275,13 @@ bool gpu::Init(const CreateInfo& createInfo)
 	createGraphicsShaders();
 
 	// Buffer (VMA)
-	vertexBuffer = allocator.CreateBuffer(vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_2_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	vertexBuffer = allocator.CreateBuffer(vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_2_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU).value();
 	void* vertexMappedData;
 	vmaMapMemory(allocator, vertexBuffer.allocation, &vertexMappedData);
 	std::memcpy(vertexMappedData, vertices.data(), vertices.size() * sizeof(Vertex));
 	vmaUnmapMemory(allocator, vertexBuffer.allocation);
 
-	indexBuffer = allocator.CreateBuffer(indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_2_INDEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	indexBuffer = allocator.CreateBuffer(indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_2_INDEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU).value();
 	void* indexMappedData;
 	vmaMapMemory(allocator, indexBuffer.allocation, &indexMappedData);
 	std::memcpy(indexMappedData, indices.data(), indices.size() * sizeof(uint32_t));
@@ -361,7 +358,7 @@ void Draw()
 {
 	VkCommandBuffer cmd = cmdBuffers[currentFrame];
 
-	// --- СТАЛО: Barrier: UNDEFINED -> COLOR_ATTACHMENT_OPTIMAL ---
+	// Barrier: UNDEFINED -> COLOR_ATTACHMENT_OPTIMAL ---
 	// VkImageMemoryBarrier2 объединяет всё в одну структуру
 	VkImageMemoryBarrier2 barrier1 = {
 		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -399,15 +396,7 @@ void Draw()
 	setGraphicsDynamicState(cmd, viewport, scissor);
 
 	// Bind Shaders & Draw
-	const std::array<VkShaderStageFlagBits, 5> stages = {
-	  VK_SHADER_STAGE_VERTEX_BIT,
-	  VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
-	  VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT,
-	  VK_SHADER_STAGE_GEOMETRY_BIT,
-	  VK_SHADER_STAGE_FRAGMENT_BIT,
-	};
-	const std::array<VkShaderEXT, 5> inshaders = { shaders[0], VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, shaders[1] };
-	vkCmdBindShadersEXT(cmd, uint32_t(stages.size()), stages.data(), inshaders.data());
+	cmdBindGraphicsShaders(cmd, shaders[0], shaders[1]);
 
 	VkDeviceSize offsets[] = { 0 }; // Смещение для вершинного буфера
 	vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer.buffer, offsets); // Привязываем вершинный буфер
@@ -418,7 +407,7 @@ void Draw()
 
 	vkCmdEndRendering(cmd);
 
-	// --- СТАЛО: Barrier: COLOR_ATTACHMENT_OPTIMAL -> PRESENT_SRC_KHR ---
+	// Barrier: COLOR_ATTACHMENT_OPTIMAL -> PRESENT_SRC_KHR ---
 	VkImageMemoryBarrier2 barrier2 = barrier1; // Копируем первую, меняем нужное
 	barrier2.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 	barrier2.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;

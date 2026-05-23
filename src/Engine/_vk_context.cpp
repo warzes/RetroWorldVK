@@ -68,7 +68,7 @@ bool Context::initInstance()
 	// Build instance extensions list from config
 	std::vector<const char*> instanceExtensions = {
 		VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
-		"VK_KHR_surface",
+		VK_KHR_SURFACE_EXTENSION_NAME,
 #if defined(_WIN32)
 		"VK_KHR_win32_surface"
 #else
@@ -266,7 +266,6 @@ bool Context::initLogicalDevice()
 
 	// Required extensions (with their feature struct pointers)
 	reqDeviceExtensions.push_back({ VK_KHR_SWAPCHAIN_EXTENSION_NAME, true, nullptr });
-	//reqDeviceExtensions.push_back({ VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME, true, nullptr });
 	reqDeviceExtensions.push_back({ VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME, true, &unifiedImageLayoutsFeature });
 	reqDeviceExtensions.push_back({ VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME, true, &descriptorHeapFeatures });  // Bindless descriptor heap for textures and samplers
 	reqDeviceExtensions.push_back({ VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME, true, &untypedPtrFeatures });  // Required by bindless

@@ -95,7 +95,7 @@ public:
 	* working around. Production engines should configure a VmaPool with a
 	* larger blockSize to sub-allocate small resources together.
 	-*/
-	Buffer CreateBuffer(
+	std::optional<Buffer> CreateBuffer(
 		VkDeviceSize             size,
 		VkBufferUsageFlags2      usage,
 		VmaMemoryUsage           memoryUsage = VMA_MEMORY_USAGE_AUTO,
@@ -162,7 +162,7 @@ public:
 	* This is only creating the image in GPU memory.
 	* See createImageAndUploadData for creating an image and uploading data.
 	-*/
-	Image CreateImage(const VkImageCreateInfo& imageInfo);
+	std::optional<Image> CreateImage(const VkImageCreateInfo& imageInfo);
 	void DestroyImage(Image& image);
 	void DestroyImageResource(ImageResource& imageResource);
 

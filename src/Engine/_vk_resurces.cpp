@@ -37,7 +37,7 @@ void ResourceAllocator::Close()
 	*this = {};
 }
 //=============================================================================
-Buffer ResourceAllocator::CreateBuffer(VkDeviceSize size, VkBufferUsageFlags2 usage, VmaMemoryUsage memoryUsage, VmaAllocationCreateFlags flags, VkDeviceSize minAlignment)
+std::optional<Buffer> ResourceAllocator::CreateBuffer(VkDeviceSize size, VkBufferUsageFlags2 usage, VmaMemoryUsage memoryUsage, VmaAllocationCreateFlags flags, VkDeviceSize minAlignment)
 {
 	const bool wantsAddress = (usage & VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT) != 0;
 
@@ -65,7 +65,7 @@ Buffer ResourceAllocator::CreateBuffer(VkDeviceSize size, VkBufferUsageFlags2 us
 	if (result != VK_SUCCESS)
 	{
 		core::Fatal("vmaCreateBufferWithAlignment failed: " + VkResultStr(result));
-		// TODO: 
+		return std::nullopt;
 	}
 
 	// Query the GPU address only if the caller asked for one (BDA opt-in).
@@ -83,7 +83,7 @@ void ResourceAllocator::DestroyBuffer(Buffer buffer)
 	vmaDestroyBuffer(m_allocator, buffer.buffer, buffer.allocation);
 }
 //=============================================================================
-Image ResourceAllocator::CreateImage(const VkImageCreateInfo& imageInfo)
+std::optional<Image> ResourceAllocator::CreateImage(const VkImageCreateInfo& imageInfo)
 {
 	const VmaAllocationCreateInfo createInfo{ .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE };
 
@@ -93,7 +93,7 @@ Image ResourceAllocator::CreateImage(const VkImageCreateInfo& imageInfo)
 	if (result != VK_SUCCESS)
 	{
 		core::Fatal("vmaCreateImage failed: " + VkResultStr(result));
-		// TODO: 
+		return std::nullopt;
 	}
 	return image;
 }
