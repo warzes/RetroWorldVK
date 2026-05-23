@@ -83,6 +83,9 @@
     <ClInclude Include="_vk_resurces.h">
       <Filter>gpu\private</Filter>
     </ClInclude>
+    <ClInclude Include="_vk_samplerPool.h">
+      <Filter>gpu\private</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp" />
@@ -126,6 +129,9 @@
       <Filter>gpu</Filter>
     </ClCompile>
     <ClCompile Include="_vk_resurces.cpp">
+      <Filter>gpu\private</Filter>
+    </ClCompile>
+    <ClCompile Include="_vk_samplerPool.cpp">
       <Filter>gpu\private</Filter>
     </ClCompile>
   </ItemGroup>
