@@ -15,13 +15,7 @@ inline bool extensionIsAvailable(const std::string& name, const std::vector<VkEx
 //=============================================================================
 bool Context::Init()
 {
-	VkResult result = volkInitialize();
-	if (result != VK_SUCCESS)
-	{
-		core::Fatal("volkInitialize failed: " + VkResultStr(result));
-		return false;
-	}
-
+	VK_CHECK_FALSE(volkInitialize());
 	if (!initInstance()) return false;
 	if (!selectPhysicalDevice()) return false;
 	if (!initLogicalDevice()) return false;
@@ -54,7 +48,8 @@ VKAPI_ATTR VkBool32 VKAPI_CALL Context::debugCallback(VkDebugUtilsMessageSeverit
 //=============================================================================
 bool Context::initInstance()
 {
-	vkEnumerateInstanceVersion(&m_apiVersion);
+	VK_CHECK_FALSE(vkEnumerateInstanceVersion(&m_apiVersion));
+
 	core::Print("VULKAN API: " + std::to_string(VK_VERSION_MAJOR(m_apiVersion)) + "." + std::to_string(VK_VERSION_MINOR(m_apiVersion)));
 	if (m_apiVersion < VK_MAKE_API_VERSION(0, 1, 4, 0))
 	{
@@ -110,12 +105,7 @@ bool Context::initInstance()
 	};
 
 	// Actual Vulkan instance creation
-	VkResult result = vkCreateInstance(&instanceCreateInfo, nullptr, &m_instance);
-	if (result != VK_SUCCESS)
-	{
-		core::Fatal("vkCreateInstance failed: " + VkResultStr(result));
-		return false;
-	}
+	VK_CHECK_FALSE(vkCreateInstance(&instanceCreateInfo, nullptr, &m_instance));
 
 	// Load all Vulkan functions
 	volkLoadInstance(m_instance);
@@ -129,12 +119,7 @@ bool Context::initInstance()
 		.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT,
 		.pfnUserCallback = Context::debugCallback,  // <-- The callback function
 		};
-		result = vkCreateDebugUtilsMessengerEXT(m_instance, &dbg_messenger_create_info, nullptr, &m_callback);
-		if (result != VK_SUCCESS)
-		{
-			core::Fatal("vkCreateDebugUtilsMessengerEXT failed: " + VkResultStr(result));
-			return false;
-		}
+		VK_CHECK_FALSE(vkCreateDebugUtilsMessengerEXT(m_instance, &dbg_messenger_create_info, nullptr, &m_callback));
 		core::Print("Validation Layers: ON");
 	}
 
@@ -146,7 +131,7 @@ bool Context::selectPhysicalDevice()
 	size_t chosenDevice = 0;
 
 	uint32_t deviceCount = 0;
-	vkEnumeratePhysicalDevices(m_instance, &deviceCount, nullptr);
+	VK_CHECK_FALSE(vkEnumeratePhysicalDevices(m_instance, &deviceCount, nullptr));
 	if (deviceCount == 0)
 	{
 		core::Fatal("failed to find GPUs with Vulkan support!");
@@ -154,7 +139,7 @@ bool Context::selectPhysicalDevice()
 	}
 
 	std::vector<VkPhysicalDevice> physicalDevices(deviceCount);
-	vkEnumeratePhysicalDevices(m_instance, &deviceCount, physicalDevices.data());
+	VK_CHECK_FALSE(vkEnumeratePhysicalDevices(m_instance, &deviceCount, physicalDevices.data()));
 
 	VkPhysicalDeviceProperties2 properties2{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
 	for (size_t i = 0; i < physicalDevices.size(); i++)
@@ -303,8 +288,7 @@ bool Context::initLogicalDevice()
 	m_deviceFeatures.pNext = &m_features11;
 	vkGetPhysicalDeviceFeatures2(m_physicalDevice, &m_deviceFeatures);
 
-	// Validate required features - these are mandatory in Vulkan 1.4, but some drivers
-	// claim 1.4 support without full conformance. Check to catch non-conformant drivers early.
+	// Validate required features - these are mandatory in Vulkan 1.4, but some drivers claim 1.4 support without full conformance. Check to catch non-conformant drivers early.
 	if (!m_features12.timelineSemaphore)
 	{
 		core::Fatal("Timeline semaphore required (Vulkan 1.2 core)");
@@ -345,12 +329,7 @@ bool Context::initLogicalDevice()
 		.enabledExtensionCount = uint32_t(deviceExtensions.size()),
 		.ppEnabledExtensionNames = deviceExtensions.data(),
 	};
-	VkResult result = vkCreateDevice(m_physicalDevice, &deviceCreateInfo, nullptr, &m_device);
-	if (result != VK_SUCCESS)
-	{
-		core::Fatal("vkCreateDevice failed: " + VkResultStr(result));
-		return false;
-	}
+	VK_CHECK_FALSE(vkCreateDevice(m_physicalDevice, &deviceCreateInfo, nullptr, &m_device));
 	DBG_VK_NAME(m_device);
 
 	volkLoadDevice(m_device);  // Load all Vulkan device functions

@@ -60,17 +60,22 @@ inline std::string VkResultStr(VkResult input_value)
 	}
 }
 
-#define VK_CHECK_FALSE(vkFnc)                                               \
-	do                                                                      \
-	{                                                                       \
-		if(const VkResult checkResult = (vkFnc); checkResult != VK_SUCCESS) \
-		{                                                                   \
-			std::string errMsg = VkResultStr(checkResult);                  \
-			core::Fatal("Vulkan error at " + std::string(__FILE__) + ":"    \
-						+ std::to_string(__LINE__) + ": " + errMsg);        \
-			return false;                                                   \
-		}                                                                   \
-	} while(0)
+#define VK_CHECK_IMPL(vkFnc, returnStmt)                                    \
+    do                                                                      \
+    {                                                                       \
+        if(const VkResult checkResult = (vkFnc); checkResult != VK_SUCCESS) \
+        {                                                                   \
+            std::string errMsg = VkResultStr(checkResult);                  \
+            core::Fatal("Vulkan error at " + std::string(#vkFnc) + ":"      \
+                        + std::string(__FILE__) + ":"                       \
+                        + std::to_string(__LINE__) + ": " + errMsg);        \
+            returnStmt;                                                     \
+        }                                                                   \
+    } while(0)
+
+#define VK_CHECK_FALSE(vkFnc) VK_CHECK_IMPL(vkFnc, return false)
+#define VK_CHECK_NULL(vkFnc)  VK_CHECK_IMPL(vkFnc, return nullptr)
+#define VK_CHECK_NONE(vkFnc)  VK_CHECK_IMPL(vkFnc, return std::nullopt)
 
 // Helper to chain Vulkan structures to the pNext chain
 // Uses VkBaseOutStructure for type-safe chaining following Vulkan conventions

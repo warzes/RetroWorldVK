@@ -17,9 +17,15 @@ namespace
 	Context           context{};          // The Vulkan context
 	VkSurfaceKHR      surface{ nullptr }; // The window surface
 	ResourceAllocator allocator;          // The VMA allocator
+	VkCommandPool     transientCmdPool{ nullptr };
 	Swapchain         swapchain;          // The swapchain
+	struct DepthBuffer final
+	{
+		VkImage depthImage{ nullptr };
+		VkImageView depthImageView{ nullptr };
+		VmaAllocation depthImageAllocation{ nullptr };
 
-	VkCommandPool transientCmdPool{};
+	} depthBuffer;
 
 	// Frame resources and synchronization
 	struct FrameData final
@@ -32,14 +38,15 @@ namespace
 	VkSemaphore frameTimelineSemaphore{};  // Timeline semaphore used to synchronize CPU submission with GPU completion
 	uint64_t    frameCounter{ 1 };           // Monotonic timeline counter (increments each frame)
 
+
+
+
+
 	VkCommandBuffer mainCommandBuffer;
-
 	VkShaderEXT shaders[2];
-
 	struct Vertex { float x, y, r, g, b; };
 	Buffer vertexBuffer;
 	Buffer indexBuffer;
-
 	std::vector<Vertex> vertices = {
 		{ -0.5f,  0.5f,  1.0f, 0.0f, 0.0f }, // Top-left     (Red)
 		{  0.5f,  0.5f,  0.0f, 1.0f, 0.0f }, // Top-right    (Green)
@@ -47,10 +54,105 @@ namespace
 		{ -0.5f, -0.5f,  1.0f, 1.0f, 1.0f }  // Bottom-left  (White)
 	};
 	std::vector<uint32_t> indices = { 0, 1, 2, 2, 3, 0 };
-
-	uint32_t currentFrame = 0;
 }
+//=============================================================================
+bool initDepthBuffer()
+{
+	const std::vector<VkFormat> depthFormatList{ VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT };
+	VkFormat depthFormat{ VK_FORMAT_UNDEFINED };
+	for (const VkFormat& format : depthFormatList)
+	{
+		VkFormatProperties2 formatProperties{ .sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2 };
+		vkGetPhysicalDeviceFormatProperties2(context.GetPhysicalDevice(), format, &formatProperties);
+		if (formatProperties.formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+		{
+			depthFormat = format;
+			break;
+		}
+	}
+	if (depthFormat == VK_FORMAT_UNDEFINED)
+		return false;
 
+	VkImageCreateInfo depthImageCI{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+		.imageType = VK_IMAGE_TYPE_2D,
+		.format = depthFormat,
+		.extent{.width = windowSize.width, .height = windowSize.height, .depth = 1},
+		.mipLevels = 1,
+		.arrayLayers = 1,
+		.samples = VK_SAMPLE_COUNT_1_BIT,
+		.tiling = VK_IMAGE_TILING_OPTIMAL,
+		.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+	};
+	VmaAllocationCreateInfo allocCI{ .flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT, .usage = VMA_MEMORY_USAGE_AUTO };
+	VK_CHECK_FALSE(vmaCreateImage(allocator, &depthImageCI, &allocCI, &depthBuffer.depthImage, &depthBuffer.depthImageAllocation, nullptr));
+	VkImageViewCreateInfo depthViewCI{ .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, .image = depthBuffer.depthImage, .viewType = VK_IMAGE_VIEW_TYPE_2D, .format = depthFormat, .subresourceRange{.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, .levelCount = 1, .layerCount = 1 } };
+	VK_CHECK_FALSE(vkCreateImageView(context.GetDevice(), &depthViewCI, nullptr, &depthBuffer.depthImageView));
+
+	return true;
+}
+//=============================================================================
+/*--
+* Creates a command pool (long life) and buffer for each frame in flight. Unlike the temporary command pool,
+* these pools persist between frames and don't use VK_COMMAND_POOL_CREATE_TRANSIENT_BIT.
+* Each frame gets its own command buffer which records all rendering commands for that frame.
+-*/
+bool createFrameSubmission(uint32_t numFrames)
+{
+	VkDevice device = context.GetDevice();
+
+	frameData.resize(numFrames);
+
+	// Initialize timeline semaphore at 0. We'll use a monotonic counter (m_frameCounter) starting at 1.
+	const uint64_t initialValue = 0;
+
+	VkSemaphoreTypeCreateInfo timelineCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
+		.pNext = nullptr,
+		.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
+		.initialValue = initialValue,
+	};
+
+	/*--
+	 * Create timeline semaphore for GPU-CPU synchronization
+	 * This ensures resources aren't overwritten while still in use by the GPU
+	-*/
+	const VkSemaphoreCreateInfo semaphoreCreateInfo{ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, .pNext = &timelineCreateInfo };
+	VK_CHECK_FALSE(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &frameTimelineSemaphore));
+	//DBG_VK_NAME(frameTimelineSemaphore);
+
+	/*--
+	 * Create command pools and buffers for each frame
+	 * Each frame gets its own command pool to allow parallel command recording while previous frames may still be executing on the GPU
+	-*/
+	const uint32_t queueFamily = context.GetGraphicsQueue().familyIndex;
+
+	for (uint32_t i = 0; i < numFrames; i++)
+	{
+		frameData[i].lastSignalValue = initialValue;  // Initialize to timeline semaphore's initial value
+
+		// Separate pools allow independent reset/recording of commands while other frames are still in-flight
+		if (!CreateCommandPool(frameData[i].cmdPool, device, queueFamily))
+		{
+			core::Fatal("CreateCommandPool failed");
+			return false;
+		}
+		//DBG_VK_NAME(m_frameData[i].cmdPool);
+
+		const VkCommandBufferAllocateInfo commandBufferAllocateInfo = {
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+			.commandPool = frameData[i].cmdPool,
+			.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+			.commandBufferCount = 1,
+		};
+		VK_CHECK_FALSE(vkAllocateCommandBuffers(device, &commandBufferAllocateInfo, &frameData[i].cmdBuffer));
+		//DBG_VK_NAME(m_frameData[i].cmdBuffer);
+	}
+
+	return true;
+}
+//=============================================================================
 void setGraphicsDynamicState(VkCommandBuffer cmd, const VkViewport& viewport, const VkRect2D& scissor)
 {
 	// Viewport / scissor (counts and values are both dynamic).
@@ -164,63 +266,7 @@ void createGraphicsShaders()
 	vkCreateShadersEXT(context.GetDevice(), 1, &fragCreateInfo, nullptr, &shaders[1]);
 }
 
-/*--
-* Creates a command pool (long life) and buffer for each frame in flight. Unlike the temporary command pool,
-* these pools persist between frames and don't use VK_COMMAND_POOL_CREATE_TRANSIENT_BIT.
-* Each frame gets its own command buffer which records all rendering commands for that frame.
--*/
-void createFrameSubmission(uint32_t numFrames)
-{
-	VkDevice device = context.GetDevice();
 
-	frameData.resize(numFrames);
-
-	// Initialize timeline semaphore at 0. We'll use a monotonic counter (m_frameCounter) starting at 1.
-	const uint64_t initialValue = 0;
-
-	VkSemaphoreTypeCreateInfo timelineCreateInfo = {
-		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
-		.pNext = nullptr,
-		.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
-		.initialValue = initialValue,
-	};
-
-	/*--
-	 * Create timeline semaphore for GPU-CPU synchronization
-	 * This ensures resources aren't overwritten while still in use by the GPU
-	-*/
-	const VkSemaphoreCreateInfo semaphoreCreateInfo{ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, .pNext = &timelineCreateInfo };
-	/*VK_CHECK*/(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &frameTimelineSemaphore));
-	//DBG_VK_NAME(m_frameTimelineSemaphore);
-
-	/*--
-	 * Create command pools and buffers for each frame
-	 * Each frame gets its own command pool to allow parallel command recording while previous frames may still be executing on the GPU
-	-*/
-	const uint32_t queueFamily = context.GetGraphicsQueue().familyIndex;
-
-	for (uint32_t i = 0; i < numFrames; i++)
-	{
-		frameData[i].lastSignalValue = initialValue;  // Initialize to timeline semaphore's initial value
-
-		// Separate pools allow independent reset/recording of commands while other frames are still in-flight
-		if (!CreateCommandPool(frameData[i].cmdPool, device, queueFamily))
-		{
-			core::Fatal("CreateCommandPool failed");
-			// TODO:
-		}
-		//DBG_VK_NAME(m_frameData[i].cmdPool);
-
-		const VkCommandBufferAllocateInfo commandBufferAllocateInfo = {
-			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-			.commandPool = frameData[i].cmdPool,
-			.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-			.commandBufferCount = 1,
-		};
-		/*VK_CHECK*/(vkAllocateCommandBuffers(device, &commandBufferAllocateInfo, &frameData[i].cmdBuffer));
-		//DBG_VK_NAME(m_frameData[i].cmdBuffer);
-	}
-}
 
 /*---
 * Prepare frame resources - the first step in the rendering process.
@@ -259,12 +305,7 @@ bool prepareFrameResources()
 #endif
 
 	VkResult result = swapchain.AcquireNextImage(context.GetDevice());
-	/*if (result == VK_ERROR_OUT_OF_DATE_KHR)
-	{
-		windowSize = swapchain.ReInitResources(vSync);
-		return false;
-	}
-	else */if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+	if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
 	{
 		// Неожиданная ошибка
 		core::Fatal("swapchain failed");
@@ -398,12 +439,7 @@ bool gpu::Init(const CreateInfo& createInfo)
 		.hinstance = createInfo.instance,
 		.hwnd = createInfo.hwnd,
 	};
-	VkResult result = vkCreateWin32SurfaceKHR(context.GetInstance(), &surfaceCreateInfo, nullptr, &surface);
-	if (result != VK_SUCCESS)
-	{
-		core::Fatal("Failed to create Vulkan surface. " + VkResultStr(result));
-		return false;
-	}
+	VK_CHECK_FALSE(vkCreateWin32SurfaceKHR(context.GetInstance(), &surfaceCreateInfo, nullptr, &surface));
 
 	VmaAllocatorCreateInfo allocatorInfo = {
 		.physicalDevice   = context.GetPhysicalDevice(),
@@ -419,12 +455,13 @@ bool gpu::Init(const CreateInfo& createInfo)
 	//DBG_VK_NAME(transientCmdPool);
 
 	swapchain.Init(context.GetPhysicalDevice(), context.GetDevice(), context.GetGraphicsQueue(), surface, transientCmdPool);
-	windowSize = swapchain.InitResources(vSync);  // Update the window size to the actual size of the surface
+	windowSize = swapchain.InitResources(vSync); // Update the window size to the actual size of the surface
+	if (!initDepthBuffer())
+		return false;
 
-	// Create what is needed to submit the scene for each frame in-flight
-	// m_frameData is sized by frames-in-flight (CPU parallelism), NOT by
-	// imageCount (GPU/presentation parallelism).
-	createFrameSubmission(swapchain.GetFramesInFlight());
+	// Create what is needed to submit the scene for each frame in-flight m_frameData is sized by frames-in-flight (CPU parallelism), NOT by imageCount (GPU/presentation parallelism).
+	if (!createFrameSubmission(swapchain.GetFramesInFlight()))
+		return false;
 
 	createGraphicsShaders();
 
@@ -500,22 +537,22 @@ void gpu::EndFrame()
 
 		// Dynamic Rendering
 		// Image to render to
-		const std::array<VkRenderingAttachmentInfo, 1> colorAttachment{ {{
+		VkRenderingAttachmentInfo colorAttachment {
 			.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
 			.imageView = swapchain.GetImageView(),
 			.imageLayout = VK_IMAGE_LAYOUT_GENERAL,
 			.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,   // Clear the image (see clearValue)
 			.storeOp = VK_ATTACHMENT_STORE_OP_STORE,  // Store the image (keep the image)
 			.clearValue = {{{0.1f, 0.1f, 0.1f, 1.0f}}},
-		}} };
+		};
 
 		// Details of the dynamic rendering
 		const VkRenderingInfo renderingInfo{
 			.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
 			.renderArea = {{0, 0}, windowSize},
 			.layerCount = 1,
-			.colorAttachmentCount = uint32_t(colorAttachment.size()),
-			.pColorAttachments = colorAttachment.data(),
+			.colorAttachmentCount = 1,
+			.pColorAttachments = &colorAttachment,
 		};
 
 		vkCmdBeginRendering(mainCommandBuffer, &renderingInfo);
@@ -527,8 +564,13 @@ void gpu::EndFrame()
 		// Bind Shaders & Draw
 		cmdBindGraphicsShaders(mainCommandBuffer, shaders[0], shaders[1]);
 
-		VkDeviceSize offsets[] = { 0 }; // Смещение для вершинного буфера
-		vkCmdBindVertexBuffers(mainCommandBuffer, 0, 1, &vertexBuffer.buffer, offsets);
+		const VkDeviceSize offsets[] = { 0 };
+		const VkDeviceSize sizes[] = { VK_WHOLE_SIZE };
+		// Bind the vertex buffer. vkCmdBindVertexBuffers2 (Vulkan 1.3 core) extends the
+		// older vkCmdBindVertexBuffers with optional pSizes and pStrides arrays. With
+		// shader objects, vertex input layout is dynamic (set via vkCmdSetVertexInputEXT
+		// above), so passing explicit sizes/strides here is fine.
+		vkCmdBindVertexBuffers2(mainCommandBuffer, 0, 1, &vertexBuffer.buffer, offsets, sizes, nullptr);
 		vkCmdBindIndexBuffer(mainCommandBuffer, indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 
 		vkCmdDrawIndexed(mainCommandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);

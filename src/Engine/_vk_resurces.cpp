@@ -18,12 +18,7 @@ bool ResourceAllocator::Init(VmaAllocatorCreateInfo allocatorInfo)
 	};
 	allocatorInfo.pVulkanFunctions = &functions;
 
-	VkResult result = vmaCreateAllocator(&allocatorInfo, &m_allocator);
-	if (result != VK_SUCCESS)
-	{
-		core::Fatal("vmaCreateAllocator failed: " + VkResultStr(result));
-		return false;
-	}
+	VK_CHECK_FALSE(vmaCreateAllocator(&allocatorInfo, &m_allocator));
 
 	return true;
 }

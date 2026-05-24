@@ -1,5 +1,6 @@
 ﻿#include "stdafx.h"
 #include "_vk_swapchain.h"
+#include "_vk_debugUtils.h"
 //=============================================================================
 void Swapchain::Init(VkPhysicalDevice physicalDevice, VkDevice device, const QueueInfo& queue, VkSurfaceKHR surface, VkCommandPool cmdPool)
 {
@@ -42,8 +43,7 @@ VkExtent2D Swapchain::InitResources(bool vSync)
 	// Set the window size according to the surface's current extent
 	outWindowSize = capabilities2.surfaceCapabilities.currentExtent;
 
-	// Pick a swapchain image count: prefer triple-buffering, but honour the
-	// surface's [minImageCount, maxImageCount] bounds.
+	// Pick a swapchain image count: prefer triple-buffering, but honour the surface's [minImageCount, maxImageCount] bounds.
 	uint32_t minImageCount = capabilities2.surfaceCapabilities.minImageCount;  // Vulkan-defined minimum
 	uint32_t preferredImageCount = std::max(kPreferredImageCount, minImageCount);
 
@@ -59,22 +59,22 @@ VkExtent2D Swapchain::InitResources(bool vSync)
 
 	// Create the swapchain itself
 	const VkSwapchainCreateInfoKHR swapchainCreateInfo{
-		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-		.surface = m_surface,
-		.minImageCount = m_imageCount,
-		.imageFormat = surfaceFormat2.surfaceFormat.format,
-		.imageColorSpace = surfaceFormat2.surfaceFormat.colorSpace,
-		.imageExtent = capabilities2.surfaceCapabilities.currentExtent,
+		.sType            = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+		.surface          = m_surface,
+		.minImageCount    = m_imageCount,
+		.imageFormat      = surfaceFormat2.surfaceFormat.format,
+		.imageColorSpace  = surfaceFormat2.surfaceFormat.colorSpace,
+		.imageExtent      = capabilities2.surfaceCapabilities.currentExtent,
 		.imageArrayLayers = 1,
-		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+		.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 		.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
-		.preTransform = capabilities2.surfaceCapabilities.currentTransform,
-		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-		.presentMode = presentMode,
-		.clipped = VK_TRUE,
+		.preTransform     = capabilities2.surfaceCapabilities.currentTransform,
+		.compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+		.presentMode      = presentMode,
+		.clipped          = VK_TRUE,
 	};
 	/*VK_CHECK*/(vkCreateSwapchainKHR(m_device, &swapchainCreateInfo, nullptr, &m_swapChain));
-	//DBG_VK_NAME(m_swapChain);
+	DBG_VK_NAME(m_swapChain);
 
 	// Retrieve the swapchain images
 	{
@@ -87,31 +87,28 @@ VkExtent2D Swapchain::InitResources(bool vSync)
 	vkGetSwapchainImagesKHR(m_device, m_swapChain, &m_imageCount, swapImages.data());
 
 	// Frames-in-flight: how many CPU frame slots run concurrently with the GPU.
-	// Default of 2 is the canonical modern choice (one being recorded on the
-	// CPU while the previous one executes on the GPU). Capped at imageCount
-	// because we can never have more frames in flight than swapchain images.
+	// Default of 2 is the canonical modern choice (one being recorded on the CPU while the previous one executes on the GPU). Capped at imageCount because we can never have more frames in flight than swapchain images.
 	m_framesInFlight = std::min(kPreferredFramesInFlight, m_imageCount);
 
-	// Per-image storage: VkImage, VkImageView, and the presentSemaphore
-	// (binary semaphore that present waits on; must follow the image).
+	// Per-image storage: VkImage, VkImageView, and the presentSemaphore (binary semaphore that present waits on; must follow the image).
 	m_nextImages.resize(m_imageCount);
 	VkImageViewCreateInfo imageViewCreateInfo{
-	.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-	.viewType = VK_IMAGE_VIEW_TYPE_2D,
-	.format = m_imageFormat,
-	.components = {.r = VK_COMPONENT_SWIZZLE_IDENTITY, .g = VK_COMPONENT_SWIZZLE_IDENTITY, .b = VK_COMPONENT_SWIZZLE_IDENTITY, .a = VK_COMPONENT_SWIZZLE_IDENTITY},
-	.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1},
+		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+		.viewType = VK_IMAGE_VIEW_TYPE_2D,
+		.format = m_imageFormat,
+		.components = {.r = VK_COMPONENT_SWIZZLE_IDENTITY, .g = VK_COMPONENT_SWIZZLE_IDENTITY, .b = VK_COMPONENT_SWIZZLE_IDENTITY, .a = VK_COMPONENT_SWIZZLE_IDENTITY},
+		.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1},
 	};
 	const VkSemaphoreCreateInfo semaphoreCreateInfo{ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 	for (uint32_t i = 0; i < m_imageCount; i++)
 	{
 		m_nextImages[i].image = swapImages[i];
-		//DBG_VK_NAME(m_nextImages[i].image);
+		DBG_VK_NAME(m_nextImages[i].image);
 		imageViewCreateInfo.image = m_nextImages[i].image;
 		/*VK_CHECK*/(vkCreateImageView(m_device, &imageViewCreateInfo, nullptr, &m_nextImages[i].imageView));
-		//DBG_VK_NAME(m_nextImages[i].imageView);
+		DBG_VK_NAME(m_nextImages[i].imageView);
 		/*VK_CHECK*/(vkCreateSemaphore(m_device, &semaphoreCreateInfo, nullptr, &m_nextImages[i].presentSemaphore));
-		//DBG_VK_NAME(m_nextImages[i].presentSemaphore);
+		DBG_VK_NAME(m_nextImages[i].presentSemaphore);
 	}
 
 	// Per-in-flight-slot storage: acquireSemaphore (consumed by acquire).
@@ -119,7 +116,7 @@ VkExtent2D Swapchain::InitResources(bool vSync)
 	for (size_t i = 0; i < m_framesInFlight; ++i)
 	{
 		/*VK_CHECK*/(vkCreateSemaphore(m_device, &semaphoreCreateInfo, nullptr, &m_inFlightSlots[i].acquireSemaphore));
-		//DBG_VK_NAME(m_inFlightSlots[i].acquireSemaphore);
+		DBG_VK_NAME(m_inFlightSlots[i].acquireSemaphore);
 	}
 
 	// Transition images to present layout

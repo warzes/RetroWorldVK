@@ -89,6 +89,9 @@
     <ClInclude Include="_vk_swapchain.h">
       <Filter>gpu\private</Filter>
     </ClInclude>
+    <ClInclude Include="gpu_resources.h">
+      <Filter>gpu</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp" />
@@ -139,6 +142,9 @@
     </ClCompile>
     <ClCompile Include="_vk_swapchain.cpp">
       <Filter>gpu\private</Filter>
+    </ClCompile>
+    <ClCompile Include="gpu_resources.cpp">
+      <Filter>gpu</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
