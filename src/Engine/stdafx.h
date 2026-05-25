@@ -77,11 +77,27 @@
 #include <volk/volk.h>
 #include <vma/vk_mem_alloc.h>
 
+#define USE_SLANG 0
+#if USE_SLANG
+#	include <slang/slang.h>
+#	include <slang/slang-com-ptr.h>
+#endif
+
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
+
 #include <imgui/imgui.h>
 #include <imgui/imgui_impl_win32.h>
 #include <imgui/imgui_impl_vulkan.h>
 
 #include <stb/stb_image.h>
+
+#include <ktx/ktx.h>
+#include <ktx/ktxvulkan.h>
+
+#include <tiny_obj_loader/tiny_obj_loader.h>
 
 #if defined(_MSC_VER)
 #	pragma warning(pop)

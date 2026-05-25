@@ -3,6 +3,67 @@
 #include "_vk_debugUtils.h"
 #include "core_log.h"
 //=============================================================================
+// Validation settings: to fine tune what is checked
+struct ValidationSettings final
+{
+	VkBool32 fine_grained_locking{ VK_TRUE };
+	VkBool32 validate_core{ VK_TRUE };
+	VkBool32 check_image_layout{ VK_TRUE };
+	VkBool32 check_command_buffer{ VK_TRUE };
+	VkBool32 check_object_in_use{ VK_TRUE };
+	VkBool32 check_query{ VK_TRUE };
+	VkBool32 check_shaders{ VK_TRUE };
+	VkBool32 check_shaders_caching{ VK_TRUE };
+	VkBool32 unique_handles{ VK_TRUE };
+	VkBool32 object_lifetime{ VK_TRUE };
+	VkBool32 stateless_param{ VK_TRUE };
+	std::vector<const char*> debug_action{ "VK_DBG_LAYER_ACTION_LOG_MSG" };  // "VK_DBG_LAYER_ACTION_DEBUG_OUTPUT", "VK_DBG_LAYER_ACTION_BREAK"
+	std::vector<const char*> report_flags{ "error", "warn" };  // Enable both errors and warnings
+	std::vector<const char*> message_id_filter{ "WARNING-legacy-gpdp2" };  // Filter: legacy vkGetPhysicalDeviceProperties warning from third-party libs (ImGui/VMA)
+
+	/*--
+	 * Build the pNext chain to enable these settings on the validation layer.
+	 *
+	 * IMPORTANT: the returned pointer is only valid for the lifetime of *this.
+	 * It points into m_layerSettingsCreateInfo (and transitively into
+	 * m_layerSettings), both of which are members. Callers MUST ensure the
+	 * ValidationSettings object outlives any Vulkan call that consumes the
+	 * chain (typically: keep it on the stack until after vkCreateInstance).
+	-*/
+	VkBaseInStructure* BuildPNextChain()
+	{
+		layerSettings = std::vector<VkLayerSettingEXT>{
+			{layerName, "fine_grained_locking", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &fine_grained_locking},
+			{layerName, "validate_core", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &validate_core},
+			{layerName, "check_image_layout", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &check_image_layout},
+			{layerName, "check_command_buffer", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &check_command_buffer},
+			{layerName, "check_object_in_use", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &check_object_in_use},
+			{layerName, "check_query", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &check_query},
+			{layerName, "check_shaders", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &check_shaders},
+			{layerName, "check_shaders_caching", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &check_shaders_caching},
+			{layerName, "unique_handles", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &unique_handles},
+			{layerName, "object_lifetime", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &object_lifetime},
+			{layerName, "stateless_param", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &stateless_param},
+			{layerName, "debug_action", VK_LAYER_SETTING_TYPE_STRING_EXT, uint32_t(debug_action.size()), debug_action.data()},
+			{layerName, "report_flags", VK_LAYER_SETTING_TYPE_STRING_EXT, uint32_t(report_flags.size()), report_flags.data()},
+			{layerName, "message_id_filter", VK_LAYER_SETTING_TYPE_STRING_EXT, uint32_t(message_id_filter.size()),
+			 message_id_filter.data()},
+
+		};
+		layerSettingsCreateInfo = {
+			.sType = VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT,
+			.settingCount = uint32_t(layerSettings.size()),
+			.pSettings = layerSettings.data(),
+		};
+
+		return reinterpret_cast<VkBaseInStructure*>(&layerSettingsCreateInfo);
+	}
+
+	static constexpr const char* layerName{ "VK_LAYER_KHRONOS_validation" };
+	std::vector<VkLayerSettingEXT> layerSettings;
+	VkLayerSettingsCreateInfoEXT   layerSettingsCreateInfo{};
+};
+//=============================================================================
 inline bool extensionIsAvailable(const std::string& name, const std::vector<VkExtensionProperties>& extensions)
 {
 	for (auto& ext : extensions)

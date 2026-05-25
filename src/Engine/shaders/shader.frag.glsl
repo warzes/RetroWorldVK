@@ -1,19 +1,34 @@
-﻿#version 460
+﻿#version 450
 
-#extension GL_GOOGLE_include_directive : require              // For #include
-#extension GL_EXT_scalar_block_layout : require               // For scalar layout
-#extension GL_EXT_shader_explicit_arithmetic_types : require  // For uint64_t, ...
-#extension GL_EXT_buffer_reference2 : require                 // For buffer reference
-#extension GL_EXT_nonuniform_qualifier : require              // For non-uniform indexing of the texture array
-#extension GL_EXT_descriptor_heap : enable                    // For bindless descriptor heap access (VK_EXT_descriptor_heap)
+#extension GL_EXT_nonuniform_qualifier : enable
 
-// Вход из вершинного шейдера (интерполированный цвет)
-layout(location = 0) in vec3 fragColor;
+// Входные переменные
+layout(location = 0) in vec3 inNormal;
+layout(location = 1) in vec2 inUV;
+layout(location = 2) in vec3 inFactor;
+layout(location = 3) in vec3 inLightVec;
+layout(location = 4) in vec3 inViewVec;
+layout(location = 5) flat in uint inInstanceIndex;
 
-// Выход в цветовой аттачмент (Swapchain image)
+// Дескрипторы текстур (массив текстур)
+layout(set = 1, binding = 0) uniform sampler2D textures[];
+
+// Выходной цвет
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    // Добавляем альфа-канал (1.0) и записываем в выход
-    outColor = vec4(fragColor, 1.0);
+    // Phong освещение
+    vec3 N = normalize(inNormal);
+    vec3 L = normalize(inLightVec);
+    vec3 V = normalize(inViewVec);
+    vec3 R = reflect(-L, N);
+    
+    float diffuse = max(dot(N, L), 0.0025);  // Это должно быть float, а не vec3!
+    float specular = pow(max(dot(R, V), 0.0), 16.0) * 0.75;
+    
+    // Сэмплирование текстуры с использованием динамического индекса
+    vec3 texColor = texture(textures[nonuniformEXT(inInstanceIndex)], inUV).rgb;
+    vec3 color = texColor * inFactor;
+    
+    outColor = vec4(diffuse * color + specular, 1.0);
 }
